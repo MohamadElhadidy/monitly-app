@@ -139,7 +139,7 @@ class PaddleService
                 try {
                     $response = Http::withHeaders([
                         'Authorization' => 'Bearer ' . $apiKey,
-                    ])->post('https://api.paddle.com/transactions', [
+                    ])->post(config('services.paddle.base_url') . 'transactions', [
                         'items' => $items,
                         'customer_email' => $billable->email ?? null,
                         'return_url' => route('billing.success'),
