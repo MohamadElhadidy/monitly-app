@@ -19,8 +19,8 @@ final class Plans
     public static function baseLimits(string $plan): array
     {
         return match ($plan) {
-            'pro' => ['monitors' => 5,  'users' => 1, 'interval' => 5],
-            'team'=> ['monitors' => 20, 'users' => 5, 'interval' => 5],
+            'pro' => ['monitors' => 5,  'users' => 1, 'interval' => 10],
+            'team'=> ['monitors' => 20, 'users' => 5, 'interval' => 10],
             default => ['monitors' => 1, 'users' => 1, 'interval' => 15],
         };
     }

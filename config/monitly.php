@@ -7,17 +7,17 @@ return [
     |--------------------------------------------------------------------------
     | Business rules:
     | - Free: 15
-    | - Pro: 5
-    | - Team: 5
-    | Add-on override (entire account/team): 2 or 1
+    | - Pro: 10 (default for all paid plans)
+    | - Team: 10 (default for all paid plans)
+    | Add-on override (entire account/team): 5 (faster checks from 10min → 5min)
     */
     'intervals' => [
         'free' => 15,
-        'pro' => 5,
-        'team' => 5,
+        'pro' => 10,
+        'team' => 10,
     ],
 
-    'allowed_intervals' => [15, 5, 2, 1],
+    'allowed_intervals' => [15, 10, 5, 2, 1],
 
     /*
     |--------------------------------------------------------------------------

@@ -22,10 +22,6 @@ class extends Component {
 
     public function getAvailableAddons(string $planKey): array
     {
-        if ($planKey === 'free') {
-            return [];
-        }
-
         return array_filter($this->addons, function($addon) use ($planKey) {
             return in_array($planKey, $addon['allowed_plans'] ?? []);
         }, ARRAY_FILTER_USE_BOTH);
@@ -153,7 +149,12 @@ class extends Component {
                                         <svg class="h-5 w-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
                                             <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-11a1 1 0 10-2 0v3.586L7.707 9.293a1 1 0 00-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 10.586V7z" clip-rule="evenodd"/>
                                         </svg>
-                                        <span class="text-gray-700">{{ $plan['check_interval'] ?? '15-minute' }} checks</span>
+                                        <span class="text-gray-700">
+                                            {{ $plan['check_interval'] ?? '15-minute' }} checks
+                                            @if ($planKey !== 'free' && ($plan['check_interval'] ?? '') === '10-minute')
+                                                <span class="text-xs text-gray-500">(upgrade to 5min available)</span>
+                                            @endif
+                                        </span>
                                     </div>
 
                                     <!-- Email Alerts -->
@@ -256,7 +257,7 @@ class extends Component {
                                                 <div class="mb-4 space-y-2">
                                                     <label class="block text-xs font-semibold text-gray-700 mb-2">Optional Add-ons:</label>
                                                     @foreach ($availableAddons as $addonKey => $addon)
-                                                        <label class="flex items-center gap-2 p-2 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                                                        <label class="flex items-center gap-2 p-3 rounded-lg border-2 border-gray-200 hover:border-blue-300 hover:bg-blue-50 cursor-pointer transition-all">
                                                             <input 
                                                                 type="radio" 
                                                                 name="addon_{{ $planKey }}" 
@@ -265,8 +266,13 @@ class extends Component {
                                                                 class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                                                             />
                                                             <div class="flex-1">
-                                                                <div class="text-sm font-medium text-gray-900">{{ $addon['name'] }}</div>
-                                                                <div class="text-xs text-gray-600">+${{ $addon['price'] }}/mo</div>
+                                                                <div class="text-sm font-semibold text-gray-900">{{ $addon['name'] }}</div>
+                                                                @if (isset($addon['description']))
+                                                                    <div class="text-xs text-gray-600 mt-0.5">{{ $addon['description'] }}</div>
+                                                                @elseif (isset($addon['pack_size']))
+                                                                    <div class="text-xs text-gray-600 mt-0.5">+{{ $addon['pack_size'] }} {{ str_contains($addon['name'], 'Monitor') ? 'monitors' : 'team members' }}</div>
+                                                                @endif
+                                                                <div class="text-xs font-semibold text-blue-600 mt-1">+${{ $addon['price'] }}/mo</div>
                                                             </div>
                                                         </label>
                                                     @endforeach
@@ -302,38 +308,60 @@ class extends Component {
             </div>
 
             <!-- Add-ons Section (for current subscribers) -->
-            @if ($currentBilling['status'] === 'active' && in_array($currentBilling['plan'], ['pro', 'team']))
+            @if ($currentBilling['status'] === 'active')
                 @php
                     $currentPlanAddons = $this->getAvailableAddons($currentBilling['plan']);
                 @endphp
                 
                 @if (count($currentPlanAddons) > 0)
                     <div class="mb-16">
-                        <h2 class="text-3xl font-bold text-gray-900 mb-6">Available Add-ons</h2>
+                        <div class="flex items-center justify-between mb-6">
+                            <div>
+                                <h2 class="text-3xl font-bold text-gray-900">Available Add-ons</h2>
+                                <p class="text-gray-600 mt-2">Enhance your plan with powerful add-ons</p>
+                            </div>
+                        </div>
                         <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
                             @foreach ($currentPlanAddons as $addonKey => $addon)
-                                <div class="bg-white rounded-xl border border-gray-200 shadow-md hover:shadow-lg transition p-6">
-                                    <h3 class="text-lg font-bold text-gray-900 mb-2">{{ $addon['name'] }}</h3>
-                                    <div class="text-2xl font-bold text-gray-900 mb-4">
-                                        ${{ $addon['price'] }}<span class="text-sm text-gray-600 font-normal">/month</span>
+                                <div class="bg-white rounded-xl border-2 border-gray-200 shadow-lg hover:shadow-xl hover:border-blue-300 transition-all p-6 relative overflow-hidden">
+                                    @if (isset($addon['interval_minutes']))
+                                        <div class="absolute top-0 right-0 bg-gradient-to-br from-yellow-400 to-orange-500 text-white text-xs font-bold px-3 py-1 rounded-bl-lg">
+                                            ⚡ FAST
+                                        </div>
+                                    @endif
+                                    
+                                    <div class="mb-4">
+                                        <h3 class="text-xl font-bold text-gray-900 mb-1">{{ $addon['name'] }}</h3>
+                                        @if (isset($addon['description']))
+                                            <p class="text-sm text-gray-600">{{ $addon['description'] }}</p>
+                                        @endif
+                                    </div>
+                                    
+                                    <div class="text-3xl font-bold text-gray-900 mb-4">
+                                        ${{ $addon['price'] }}<span class="text-base text-gray-600 font-normal">/month</span>
                                     </div>
                                     
                                     @if (isset($addon['pack_size']))
-                                        <p class="text-sm text-gray-600 mb-4">
-                                            Adds <strong>{{ $addon['pack_size'] }}</strong> 
-                                            {{ str_contains($addon['name'], 'Monitor') ? 'monitors' : 'team members' }} to your plan
-                                        </p>
-                                    @else
-                                        <p class="text-sm text-gray-600 mb-4">
-                                            {{ $addon['name'] }}
-                                        </p>
+                                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4">
+                                            <p class="text-sm text-blue-900">
+                                                <span class="font-bold">+{{ $addon['pack_size'] }}</span> 
+                                                {{ str_contains($addon['name'], 'Monitor') ? 'monitors' : 'team members' }} per pack
+                                            </p>
+                                        </div>
+                                    @elseif (isset($addon['interval_minutes']))
+                                        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4">
+                                            <p class="text-sm text-yellow-900">
+                                                <span class="font-bold">Account-wide</span> upgrade
+                                            </p>
+                                            <p class="text-xs text-yellow-700 mt-1">All monitors check every {{ $addon['interval_minutes'] }} minutes</p>
+                                        </div>
                                     @endif
 
                                     <form method="POST" action="{{ route('billing.checkout') }}">
                                         @csrf
                                         <input type="hidden" name="plan" value="{{ $currentBilling['plan'] }}">
                                         <input type="hidden" name="addon" value="{{ $addonKey }}">
-                                        <button type="submit" class="w-full py-2 px-4 rounded-lg font-semibold text-white bg-blue-600 hover:bg-blue-700 transition">
+                                        <button type="submit" class="w-full py-3 px-4 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transition shadow-md hover:shadow-lg">
                                             Add to Subscription
                                         </button>
                                     </form>

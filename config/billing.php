@@ -26,7 +26,7 @@ return [
             'price_ids' => array_filter(explode(',', env('PADDLE_PRICE_IDS_PRO', ''))),
             'monitors' => 5,
             'users' => 1,
-            'check_interval' => '5-minute',
+            'check_interval' => '10-minute',
             'features' => [
                 'email_alerts' => true,
                 'slack_integration' => false,
@@ -41,7 +41,7 @@ return [
             'price_ids' => array_filter(explode(',', env('PADDLE_PRICE_IDS_TEAM', ''))),
             'monitors' => 20,
             'users' => 5,
-            'check_interval' => '5-minute',
+            'check_interval' => '10-minute',
             'features' => [
                 'email_alerts' => true,
                 'slack_integration' => true,
@@ -58,7 +58,7 @@ return [
             'price' => 5,
             'price_ids' => array_filter(explode(',', env('PADDLE_PRICE_IDS_ADDON_MONITOR_PACK', ''))),
             'pack_size' => 5,
-            'allowed_plans' => ['pro', 'team'],
+            'allowed_plans' => ['free', 'pro', 'team'],
         ],
         'extra_seat_pack' => [
             'name' => 'Extra Team Member Pack',
@@ -67,23 +67,13 @@ return [
             'pack_size' => 3,
             'allowed_plans' => ['team'],
         ],
-        'interval_override_2' => [
-            'name' => '2-Minute Checks',
-            'price' => 15,
-            'price_ids' => array_filter(explode(',', env('PADDLE_PRICE_IDS_ADDON_INTERVAL_2', ''))),
+        'faster_checks_5min' => [
+            'name' => 'Faster Check Interval',
+            'description' => 'Upgrade from 10 min → 5 min (Account-wide)',
+            'price' => 7,
+            'price_ids' => array_filter(explode(',', env('PADDLE_PRICE_IDS_ADDON_FASTER_CHECKS', ''))),
             'allowed_plans' => ['pro', 'team'],
-        ],
-        'interval_override_3' => [
-            'name' => '3-Minute Checks',
-            'price' => 9,
-            'price_ids' => array_filter(explode(',', env('PADDLE_PRICE_IDS_ADDON_INTERVAL_3', ''))),
-            'allowed_plans' => ['pro', 'team'],
-        ],
-        'interval_override_4' => [
-            'name' => '4-Minute Checks',
-            'price' => 5,
-            'price_ids' => array_filter(explode(',', env('PADDLE_PRICE_IDS_ADDON_INTERVAL_4', ''))),
-            'allowed_plans' => ['pro', 'team'],
+            'interval_minutes' => 5,
         ],
     ],
 ];

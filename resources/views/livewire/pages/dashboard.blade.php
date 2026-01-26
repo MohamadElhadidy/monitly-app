@@ -203,7 +203,7 @@ class extends Component {
 
                     <div class="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-lg p-4">
                         <p class="text-gray-600 text-sm font-medium">Check Interval</p>
-                        <p class="text-3xl font-bold text-emerald-600 mt-2">{{ $plan['check_interval'] }}</p>
+                        <p class="text-3xl font-bold text-emerald-600 mt-2">{{ $plan['check_interval'] }}min</p>
                     </div>
 
                     <div class="bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg p-4">

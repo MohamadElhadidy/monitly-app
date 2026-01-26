@@ -47,8 +47,8 @@ class PlanLimits
     {
         return match ($plan) {
             self::PLAN_FREE => 15,
-            self::PLAN_PRO => 5,
-            self::PLAN_TEAM => 5,
+            self::PLAN_PRO => 10,
+            self::PLAN_TEAM => 10,
             default => 15,
         };
     }
@@ -85,9 +85,8 @@ class PlanLimits
         $base = self::baseMonitorLimit($plan);
 
         $packs = (int) ($user->addon_extra_monitor_packs ?? 0);
-        if (! in_array($plan, [self::PLAN_PRO], true)) {
-            $packs = 0; // Add-ons only for Pro (users) and Team (teams)
-        }
+        // Monitor packs available for all plans (free, pro, team)
+        // No restriction needed
 
         return $base + ($packs * 5);
     }
@@ -98,14 +97,18 @@ class PlanLimits
         $base = self::baseIntervalMinutes($plan);
 
         $override = (int) ($user->addon_interval_override_minutes ?? 0);
-        $override = in_array($override, [1, 2], true) ? $override : 0;
-
-        // override allowed for Pro only (user-level)
-        if ($plan !== self::PLAN_PRO) {
-            $override = 0;
+        
+        // Faster checks addon: 5 minutes (upgrade from 10)
+        if ($override === 5 && in_array($plan, [self::PLAN_PRO, self::PLAN_TEAM], true)) {
+            return 5;
         }
 
-        return $override > 0 ? min($override, $base) : $base;
+        // Legacy overrides: 2 or 1 minutes
+        if (in_array($override, [1, 2], true) && $plan === self::PLAN_PRO) {
+            return $override;
+        }
+
+        return $base;
     }
 
     public static function planForTeam(Team $team): string
@@ -148,12 +151,17 @@ class PlanLimits
         $base = self::baseIntervalMinutes($plan);
 
         $override = (int) ($team->addon_interval_override_minutes ?? 0);
-        $override = in_array($override, [1, 2], true) ? $override : 0;
-
-        if ($plan !== self::PLAN_TEAM) {
-            $override = 0;
+        
+        // Faster checks addon: 5 minutes (upgrade from 10)
+        if ($override === 5 && $plan === self::PLAN_TEAM) {
+            return 5;
         }
 
-        return $override > 0 ? min($override, $base) : $base;
+        // Legacy overrides: 2 or 1 minutes
+        if (in_array($override, [1, 2], true) && $plan === self::PLAN_TEAM) {
+            return $override;
+        }
+
+        return $base;
     }
 }

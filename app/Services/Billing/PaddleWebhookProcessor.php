@@ -117,9 +117,17 @@ class PaddleWebhookProcessor
                     $owner->grace_ends_at = null;
                 }
 
-                // Apply add-ons (Pro only)
-                $owner->addon_extra_monitor_packs = $owner->billing_plan === PlanLimits::PLAN_PRO ? $addons['extra_monitor_packs'] : 0;
-                $owner->addon_interval_override_minutes = $owner->billing_plan === PlanLimits::PLAN_PRO ? $addons['interval_override_minutes'] : null;
+                // Apply add-ons (Pro and Team)
+                $owner->addon_extra_monitor_packs = in_array($owner->billing_plan, [PlanLimits::PLAN_PRO, PlanLimits::PLAN_TEAM], true) ? $addons['extra_monitor_packs'] : 0;
+                // Faster checks (5min) available for Pro and Team; legacy overrides (2/1min) only for Pro
+                $intervalOverride = $addons['interval_override_minutes'];
+                if ($intervalOverride === 5 && in_array($owner->billing_plan, [PlanLimits::PLAN_PRO, PlanLimits::PLAN_TEAM], true)) {
+                    $owner->addon_interval_override_minutes = 5;
+                } elseif (in_array($intervalOverride, [2, 1], true) && $owner->billing_plan === PlanLimits::PLAN_PRO) {
+                    $owner->addon_interval_override_minutes = $intervalOverride;
+                } else {
+                    $owner->addon_interval_override_minutes = null;
+                }
 
                 $owner->save();
 
@@ -152,7 +160,15 @@ class PaddleWebhookProcessor
                 // Apply add-ons (Team only)
                 $owner->addon_extra_monitor_packs = $owner->billing_plan === PlanLimits::PLAN_TEAM ? $addons['extra_monitor_packs'] : 0;
                 $owner->addon_extra_seat_packs = $owner->billing_plan === PlanLimits::PLAN_TEAM ? $addons['extra_seat_packs'] : 0;
-                $owner->addon_interval_override_minutes = $owner->billing_plan === PlanLimits::PLAN_TEAM ? $addons['interval_override_minutes'] : null;
+                // Faster checks (5min) available for Team
+                $intervalOverride = $addons['interval_override_minutes'];
+                if ($intervalOverride === 5 && $owner->billing_plan === PlanLimits::PLAN_TEAM) {
+                    $owner->addon_interval_override_minutes = 5;
+                } elseif (in_array($intervalOverride, [2, 1], true) && $owner->billing_plan === PlanLimits::PLAN_TEAM) {
+                    $owner->addon_interval_override_minutes = $intervalOverride;
+                } else {
+                    $owner->addon_interval_override_minutes = null;
+                }
 
                 $owner->save();
 
@@ -200,13 +216,15 @@ class PaddleWebhookProcessor
     {
         $addonMon = (array) config('billing.addons.extra_monitor_pack.price_ids', []);
         $addonSeat = (array) config('billing.addons.extra_seat_pack.price_ids', []);
+        $addonFaster = (array) config('billing.addons.faster_checks_5min.price_ids', []);
+        // Legacy addons (keep for backward compatibility)
         $addon2 = (array) config('billing.addons.interval_override_2.price_ids', []);
         $addon1 = (array) config('billing.addons.interval_override_1.price_ids', []);
 
         $extraMonitorPacks = 0;
         $extraSeatPacks = 0;
 
-        $intervalOverride = null; // 2 or 1
+        $intervalOverride = null; // 5 (faster checks), 2, or 1
 
         foreach ($items as $it) {
             $priceId = Arr::get($it, 'price.id') ?? Arr::get($it, 'price_id') ?? null;
@@ -223,10 +241,15 @@ class PaddleWebhookProcessor
                 $extraSeatPacks += $qty;
             }
 
-            if (in_array($priceId, $addon2, true)) {
+            // Faster checks addon (10min → 5min)
+            if (in_array($priceId, $addonFaster, true)) {
+                $intervalOverride = 5;
+            }
+            // Legacy overrides
+            elseif (in_array($priceId, $addon2, true)) {
                 $intervalOverride = 2;
             }
-            if (in_array($priceId, $addon1, true)) {
+            elseif (in_array($priceId, $addon1, true)) {
                 $intervalOverride = 1;
             }
         }
