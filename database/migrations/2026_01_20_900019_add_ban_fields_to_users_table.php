@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            $table->timestamp('banned_at')->nullable()->after('refund_override_until');
+            $table->timestamp('banned_at')->nullable()->after('profile_photo_path');
             $table->string('ban_reason', 190)->nullable()->after('banned_at');
 
             $table->index(['banned_at']);

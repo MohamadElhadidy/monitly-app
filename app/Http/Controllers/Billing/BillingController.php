@@ -3,77 +3,74 @@
 namespace App\Http\Controllers\Billing;
 
 use App\Http\Controllers\Controller;
+use App\Services\Billing\BillingService;
+use App\Services\Billing\PaddleService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Symfony\Component\HttpFoundation\Response;
+use Illuminate\Support\Facades\Log;
 
 class BillingController extends Controller
 {
+    public function __construct(
+        private readonly BillingService $billingService,
+        private readonly PaddleService $paddleService,
+    ) {}
+
     public function index(Request $request)
     {
-        $user = $request->user();
-
-        return view('billing.index', [
-            'user' => $user,
-            'team' => $user->currentTeam,
-        ]);
+        return view('livewire.pages.billing.index');
     }
 
     public function checkout(Request $request)
     {
-        $request->validate([
-            'plan'  => 'required|in:pro,team',
-            'scope' => 'required|in:user,team',
-        ]);
+        try {
+            $validated = $request->validate([
+                'plan' => 'required|in:pro,team',
+                'addon' => 'nullable|string',
+            ]);
 
-        $user  = $request->user();
-        $scope = $request->string('scope')->toString();
-        $plan  = $request->string('plan')->toString();
+            $user = $request->user();
+            $plan = $validated['plan'];
+            $addon = $validated['addon'] ?? null;
 
-        if ($scope === 'team') {
-            $team = $user->currentTeam;
+            $checkout = $this->paddleService->createCheckoutSession(
+                billable: $user,
+                plan: $plan,
+                addon: $addon,
+            );
 
-            abort_unless($team, 403);
-            abort_unless($team->user_id === $user->id, 403);
+            if (!$checkout) {
+                return back()->with('error', 'Failed to create checkout');
+            }
 
-            $billable  = $team;
-            $ownerType = 'team';
-            $ownerId   = $team->id;
-        } else {
-            $billable  = $user;
-            $ownerType = 'user';
-            $ownerId   = $user->id;
+            Log::info('Checkout initiated', ['user_id' => $user->id, 'plan' => $plan]);
+
+            return view('livewire.pages.billing.checkout', [
+                'checkout' => $checkout,
+                'plan' => $plan,
+                'addon' => $addon,
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Checkout error', ['error' => $e->getMessage()]);
+            return back()->with('error', 'An error occurred');
         }
-
-        $priceId = match ($plan) {
-            'pro'  => config('billing.plans.pro.price_ids.0'),
-            'team' => config('billing.plans.team.price_ids.0'),
-        };
-
-        abort_if(empty($priceId), 500, 'Price ID not configured');
-
-        $checkout = $billable->checkout([$priceId => 1])
-            ->customData([
-                'owner_type' => $ownerType,
-                'owner_id'   => $ownerId,
-                'plan'       => $plan,
-            ])
-            ->returnTo(route('billing.success'));
-
-        return view('billing.checkout', [
-            'checkout' => $checkout,
-            'plan'     => $plan,
-            'scope'    => $scope,
-        ]);
     }
 
-    public function portal(Request $request)
+    public function success(Request $request)
     {
-        return $request->user()->redirectToBillingPortal();
+        return view('livewire.pages.billing.success');
     }
 
-    public function success()
+    public function cancel(Request $request)
     {
-        return view('billing.success');
+        try {
+            $user = $request->user();
+            $this->paddleService->cancelSubscription($user);
+            Log::info('Subscription cancelled', ['user_id' => $user->id]);
+            return back()->with('success', 'Subscription cancelled');
+        } catch (\Exception $e) {
+            Log::error('Cancel error', ['error' => $e->getMessage()]);
+            return back()->with('error', 'Failed to cancel');
+        }
     }
 }
