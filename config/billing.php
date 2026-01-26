@@ -17,7 +17,7 @@ return [
                 'slack_integration' => false,
                 'webhooks' => false,
                 'team_invitations' => false,
-                'add_ons' => false,
+                'add_ons' => true,
             ],
         ],
         'pro' => [

@@ -18,12 +18,12 @@ class PaddleService
     public function createCheckoutSession(
         Model $billable,
         string $plan,
-        ?string $addon = null,
+        array $addons = [],
     ): ?array {
         try {
             $priceIds = config("billing.plans.{$plan}.price_ids", []);
 
-            if (empty($priceIds)) {
+            if (empty($priceIds) && $plan !== 'free') {
                 Log::warning('No price IDs configured for plan', ['plan' => $plan]);
                 // Return a development checkout URL that shows a message
                 return [
@@ -33,15 +33,22 @@ class PaddleService
                 ];
             }
 
-            $items = [
-                [
+            // Build items array for Paddle
+            $items = [];
+            
+            // Add plan price if not free
+            if ($plan !== 'free' && !empty($priceIds)) {
+                $items[] = [
                     'price_id' => $priceIds[0],
                     'quantity' => 1,
-                ]
-            ];
+                ];
+            }
 
-            if ($addon) {
-                $addonPriceIds = config("billing.addons.{$addon}.price_ids", []);
+            // Add addons
+            foreach ($addons as $addonKey) {
+                if (empty($addonKey)) continue;
+                
+                $addonPriceIds = config("billing.addons.{$addonKey}.price_ids", []);
                 if (!empty($addonPriceIds)) {
                     $items[] = [
                         'price_id' => $addonPriceIds[0],
@@ -50,15 +57,27 @@ class PaddleService
                 }
             }
 
+            // If no items (free plan with no addons), return null
+            if (empty($items)) {
+                return [
+                    'url' => '#',
+                    'id' => 'no_items',
+                    'message' => 'No items to checkout. Please select a plan or addon.',
+                ];
+            }
+
             // Use Laravel Cashier Paddle if available
             if (method_exists($billable, 'checkout')) {
                 try {
-                    $checkout = $billable->checkout($items, [
+                    // Laravel Cashier Paddle expects prices as array of price IDs or items with price_id
+                    $prices = array_map(fn($item) => $item['price_id'], $items);
+                    
+                    $checkout = $billable->checkout($prices, [
                         'return_url' => route('billing.success'),
                         'custom_data' => [
                             'user_id' => $billable->id,
                             'plan' => $plan,
-                            'addon' => $addon,
+                            'addons' => $addons,
                         ],
                     ]);
 
@@ -67,7 +86,7 @@ class PaddleService
                         'id' => $checkout->id ?? 'checkout_' . uniqid(),
                     ];
                 } catch (\Exception $e) {
-                    Log::error('Cashier checkout error', ['error' => $e->getMessage()]);
+                    Log::error('Cashier checkout error', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
                 }
             }
 
@@ -78,7 +97,7 @@ class PaddleService
                     'Authorization' => 'Bearer ' . $apiKey,
                 ])->post('https://api.paddle.com/transactions', [
                     'items' => $items,
-                    'customer_email' => $billable->email,
+                    'customer_email' => $billable->email ?? null,
                     'return_url' => route('billing.success'),
                 ]);
 

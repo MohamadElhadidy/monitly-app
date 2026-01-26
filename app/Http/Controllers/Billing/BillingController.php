@@ -25,29 +25,38 @@ class BillingController extends Controller
     {
         try {
             $validated = $request->validate([
-                'plan' => 'required|in:pro,team',
+                'plan' => 'required|in:free,pro,team',
+                'addons' => 'nullable|array',
+                'addons.*' => 'string',
+                // Backward compatibility
                 'addon' => 'nullable|string',
             ]);
 
             $user = $request->user();
             $plan = $validated['plan'];
-            $addon = $validated['addon'] ?? null;
+            
+            // Support both single addon (backward compat) and multiple addons
+            $addons = $validated['addons'] ?? [];
+            if (empty($addons) && !empty($validated['addon'])) {
+                $addons = [$validated['addon']];
+            }
+            $addons = array_filter($addons); // Remove empty values
 
             $checkout = $this->paddleService->createCheckoutSession(
                 billable: $user,
                 plan: $plan,
-                addon: $addon,
+                addons: $addons,
             );
 
-            if (!$checkout) {
-                return back()->with('error', 'Failed to create checkout. Please ensure Paddle price IDs are configured.');
+            if (!$checkout || ($checkout['id'] ?? null) === 'no_items') {
+                return back()->with('error', $checkout['message'] ?? 'Failed to create checkout. Please ensure Paddle price IDs are configured.');
             }
 
-            Log::info('Checkout initiated', ['user_id' => $user->id, 'plan' => $plan]);
+            Log::info('Checkout initiated', ['user_id' => $user->id, 'plan' => $plan, 'addons' => $addons]);
 
             return redirect()->route('billing.checkout.page', [
                 'plan' => $plan,
-                'addon' => $addon,
+                'addons' => $addons,
             ])->with('checkout', $checkout);
         } catch (\Exception $e) {
             Log::error('Checkout error', ['error' => $e->getMessage()]);
@@ -59,7 +68,13 @@ class BillingController extends Controller
     {
         $checkout = $request->session()->get('checkout');
         $plan = $request->get('plan', 'pro');
-        $addon = $request->get('addon');
+        $addons = $request->get('addons', []);
+        
+        // Backward compatibility
+        if (empty($addons) && $request->has('addon')) {
+            $addons = [$request->get('addon')];
+        }
+        $addons = array_filter($addons);
 
         if (!$checkout) {
             // If no checkout session, create one
@@ -67,19 +82,19 @@ class BillingController extends Controller
             $checkout = $this->paddleService->createCheckoutSession(
                 billable: $user,
                 plan: $plan,
-                addon: $addon,
+                addons: $addons,
             );
 
-            if (!$checkout) {
+            if (!$checkout || ($checkout['id'] ?? null) === 'no_items') {
                 return redirect()->route('billing.index')
-                    ->with('error', 'Failed to create checkout. Please ensure Paddle price IDs are configured.');
+                    ->with('error', $checkout['message'] ?? 'Failed to create checkout. Please ensure Paddle price IDs are configured.');
             }
         }
 
         return view('livewire.pages.billing.checkout', [
             'checkout' => $checkout,
             'plan' => $plan,
-            'addon' => $addon,
+            'addons' => $addons,
         ]);
     }
 

@@ -51,15 +51,61 @@ class extends Component {
                 <h1 class="text-4xl font-bold text-gray-900 mb-4">Billing & Plans</h1>
                 <p class="text-lg text-gray-600">Choose the perfect plan for your monitoring needs</p>
 
-                <!-- Status Alert -->
-                @if ($currentBilling['status'] === 'active')
-                    <div class="mt-6 bg-green-50 border border-green-200 rounded-lg p-4">
-                        <p class="text-green-800 font-semibold">
-                            ✓ Your {{ ucfirst($currentBilling['plan']) }} plan is active
+                <!-- Billing Information Card -->
+                @php
+                    $user = auth()->user();
+                    $subscription = method_exists($user, 'subscription') ? $user->subscription('default') : null;
+                    $hasActiveSubscription = $subscription && method_exists($subscription, 'active') && $subscription->active();
+                @endphp
+                
+                @if ($hasActiveSubscription || $currentBilling['status'] === 'active')
+                    <div class="mt-6 bg-white border border-gray-200 rounded-xl shadow-lg p-6">
+                        <h2 class="text-xl font-bold text-gray-900 mb-4">Current Subscription</h2>
+                        <div class="grid md:grid-cols-2 gap-6">
+                            <div>
+                                <div class="text-sm text-gray-600 mb-1">Plan</div>
+                                <div class="text-lg font-semibold text-gray-900">{{ ucfirst($currentBilling['plan']) }}</div>
+                            </div>
+                            <div>
+                                <div class="text-sm text-gray-600 mb-1">Status</div>
+                                <div class="text-lg font-semibold {{ $currentBilling['status'] === 'active' ? 'text-green-600' : 'text-yellow-600' }}">
+                                    {{ ucfirst($currentBilling['status']) }}
+                                </div>
+                            </div>
                             @if ($currentBilling['next_bill_at'])
-                                • Next billing: {{ $currentBilling['next_bill_at']->format('M d, Y') }}
+                                <div>
+                                    <div class="text-sm text-gray-600 mb-1">Next Payment</div>
+                                    <div class="text-lg font-semibold text-gray-900">
+                                        {{ $currentBilling['next_bill_at']->format('M d, Y') }}
+                                    </div>
+                                </div>
                             @endif
-                        </p>
+                            @if ($subscription && method_exists($subscription, 'paddleCustomer'))
+                                <div>
+                                    <div class="text-sm text-gray-600 mb-1">Payment Method</div>
+                                    <div class="text-lg font-semibold text-gray-900">
+                                        <a href="https://customer.paddle.com/billing/customers/{{ $user->paddle_customer_id ?? 'manage' }}" 
+                                           target="_blank" 
+                                           class="text-blue-600 hover:text-blue-800 underline">
+                                            Manage Payment Method →
+                                        </a>
+                                    </div>
+                                </div>
+                            @endif
+                        </div>
+                        
+                        @if ($subscription && method_exists($subscription, 'paddleCustomer'))
+                            <div class="mt-4 pt-4 border-t border-gray-200">
+                                <a href="https://customer.paddle.com/billing/customers/{{ $user->paddle_customer_id ?? 'manage' }}" 
+                                   target="_blank" 
+                                   class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                    </svg>
+                                    View Invoices & Payment History
+                                </a>
+                            </div>
+                        @endif
                     </div>
                 @elseif ($currentBilling['status'] === 'grace')
                     <div class="mt-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
@@ -255,14 +301,14 @@ class extends Component {
                                             
                                             @if (count($availableAddons) > 0)
                                                 <div class="mb-4 space-y-2">
-                                                    <label class="block text-xs font-semibold text-gray-700 mb-2">Optional Add-ons:</label>
+                                                    <label class="block text-xs font-semibold text-gray-700 mb-2">Optional Add-ons (select multiple):</label>
                                                     @foreach ($availableAddons as $addonKey => $addon)
                                                         <label class="flex items-center gap-2 p-3 rounded-lg border-2 border-gray-200 hover:border-blue-300 hover:bg-blue-50 cursor-pointer transition-all">
                                                             <input 
-                                                                type="radio" 
-                                                                name="addon_{{ $planKey }}" 
+                                                                type="checkbox" 
+                                                                name="addons[]" 
                                                                 value="{{ $addonKey }}"
-                                                                onchange="document.getElementById('addon-input-{{ $planKey }}').value = '{{ $addonKey }}'"
+                                                                form="checkout-form-{{ $planKey }}"
                                                                 class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                                                             />
                                                             <div class="flex-1">
@@ -276,24 +322,12 @@ class extends Component {
                                                             </div>
                                                         </label>
                                                     @endforeach
-                                                    <label class="flex items-center gap-2 p-2 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
-                                                        <input 
-                                                            type="radio" 
-                                                            name="addon_{{ $planKey }}" 
-                                                            value=""
-                                                            checked
-                                                            onchange="document.getElementById('addon-input-{{ $planKey }}').value = ''"
-                                                            class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                                        />
-                                                        <div class="text-sm text-gray-700">No add-on</div>
-                                                    </label>
                                                 </div>
                                             @endif
 
                                             <form method="POST" action="{{ route('billing.checkout') }}" class="w-full" id="checkout-form-{{ $planKey }}">
                                                 @csrf
                                                 <input type="hidden" name="plan" value="{{ $planKey }}">
-                                                <input type="hidden" name="addon" id="addon-input-{{ $planKey }}" value="">
                                                 <button type="submit" class="w-full py-3 px-4 rounded-lg font-semibold text-white {{ $planKey === 'team' ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700' : 'bg-purple-600 hover:bg-purple-700' }} transition shadow-lg hover:shadow-xl">
                                                     {{ $planKey === 'free' ? 'Use Free' : 'Subscribe Now' }}
                                                 </button>
@@ -360,7 +394,7 @@ class extends Component {
                                     <form method="POST" action="{{ route('billing.checkout') }}">
                                         @csrf
                                         <input type="hidden" name="plan" value="{{ $currentBilling['plan'] }}">
-                                        <input type="hidden" name="addon" value="{{ $addonKey }}">
+                                        <input type="hidden" name="addons[]" value="{{ $addonKey }}">
                                         <button type="submit" class="w-full py-3 px-4 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transition shadow-md hover:shadow-lg">
                                             Add to Subscription
                                         </button>
