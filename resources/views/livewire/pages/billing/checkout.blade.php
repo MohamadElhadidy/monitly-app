@@ -15,7 +15,7 @@ class extends Component {
 
     public function mount()
     {
-        // Get data from request (passed from controller)
+        // Get data from request
         $request = request();
         $this->plan = $request->get('plan', 'pro');
         $addonsFromRequest = $request->get('addons', []);
@@ -28,7 +28,29 @@ class extends Component {
         $this->addons = is_array($addonsFromRequest) ? array_filter($addonsFromRequest) : [];
         $this->plans = config('billing.plans', []);
         $this->addonsConfig = config('billing.addons', []);
-        $this->checkout = session('checkout', ['url' => '#', 'id' => '']);
+        
+        // Get checkout from session or create new one
+        $this->checkout = session('checkout');
+        
+        if (!$this->checkout) {
+            // Create checkout session if it doesn't exist
+            $user = auth()->user();
+            $paddleService = app(\App\Services\Billing\PaddleService::class);
+            
+            $this->checkout = $paddleService->createCheckoutSession(
+                billable: $user,
+                plan: $this->plan,
+                addons: $this->addons,
+            );
+            
+            if (!$this->checkout || ($this->checkout['id'] ?? null) === 'no_items') {
+                session()->flash('error', $this->checkout['message'] ?? 'Failed to create checkout. Please ensure Paddle price IDs are configured.');
+                return $this->redirect(route('billing.index'), navigate: false);
+            }
+            
+            // Store in session
+            session(['checkout' => $this->checkout]);
+        }
     }
 }; ?>
 

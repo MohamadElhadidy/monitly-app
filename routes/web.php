@@ -67,7 +67,7 @@ Route::middleware(['auth', 'verified'])
     ->name('billing.')
     ->group(function () {
         Route::post('/billing/checkout', [\App\Http\Controllers\Billing\BillingController::class, 'checkout'])->name('checkout');
-        Route::get('/billing/checkout', [\App\Http\Controllers\Billing\BillingController::class, 'checkoutPage'])->name('checkout.page');
+        Volt::route('/billing/checkout', 'pages.billing.checkout')->name('checkout.page');
         Route::get('/billing/success', [\App\Http\Controllers\Billing\BillingController::class, 'success'])->name('success');
         Route::post('/billing/cancel', [\App\Http\Controllers\Billing\BillingController::class, 'cancel'])->name('cancel');
     });
