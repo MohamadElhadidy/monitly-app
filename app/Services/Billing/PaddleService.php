@@ -66,13 +66,15 @@ class PaddleService
                 ];
             }
 
-            // Use Laravel Cashier Paddle if available
-            if (method_exists($billable, 'checkout')) {
+            // Use Laravel Cashier Paddle if available (only for single item)
+            // For multiple items, use direct Paddle API which handles items array properly
+            if (method_exists($billable, 'checkout') && count($items) === 1) {
                 try {
-                    // Laravel Cashier Paddle expects prices as array of price IDs or items with price_id
-                    $prices = array_map(fn($item) => $item['price_id'], $items);
+                    // Laravel Cashier Paddle checkout signature: checkout(string $priceId, int $quantity, array $options = [])
+                    $priceId = $items[0]['price_id'];
+                    $quantity = $items[0]['quantity'] ?? 1;
                     
-                    $checkout = $billable->checkout($prices, [
+                    $checkout = $billable->checkout($priceId, $quantity, [
                         'return_url' => route('billing.success'),
                         'custom_data' => [
                             'user_id' => $billable->id,
@@ -87,6 +89,7 @@ class PaddleService
                     ];
                 } catch (\Exception $e) {
                     Log::error('Cashier checkout error', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+                    // Fall through to direct API call
                 }
             }
 
