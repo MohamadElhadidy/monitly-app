@@ -72,4 +72,32 @@ class Team extends JetstreamTeam
     {
         return $this->hasMany(WebhookEndpoint::class);
     }
+    
+    public function getBillingPlan(): string
+{
+    return $this->billing_plan ?? 'free';
+}
+
+public function getBillingStatus(): string
+{
+    return $this->billing_status ?? 'free';
+}
+
+public function isSubscribed(): bool
+{
+    return in_array($this->billing_status, ['active']);
+}
+
+public function isInGrace(): bool
+{
+    if ($this->billing_status !== 'grace') {
+        return false;
+    }
+
+    if (!$this->grace_ends_at) {
+        return true;
+    }
+
+    return now()->isBefore($this->grace_ends_at);
+}
 }

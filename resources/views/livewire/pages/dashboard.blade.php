@@ -1,560 +1,381 @@
 <?php
 
+use Livewire\Volt\Component;
+use App\Services\Billing\PlanLimits;
 use App\Models\Monitor;
-use App\Models\Incident;
-use Carbon\Carbon;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
-use function Livewire\Volt\{state, computed, layout, title};
 
-layout('layouts.app');
-title('Dashboard');
+use Livewire\Attributes\Layout;
 
-state([
-    // 24h | 7d | 30d | custom
-    'range' => '7d',
-    'from' => null, // YYYY-MM-DD
-    'to' => null,   // YYYY-MM-DD
-]);
+new
+#[Layout('layouts.app')] 
+class extends Component {
+    public function plan()
+    {
+        $user = auth()->user();
+        $planName = $user->billing_plan ?? 'free';
 
-$rangeWindow = computed(function (): array {
-    $now = Carbon::now();
-
-    if ($this->range === '24h') {
-        return [$now->copy()->subHours(24), $now];
-    }
-
-    if ($this->range === '30d') {
-        return [$now->copy()->subDays(30)->startOfDay(), $now];
-    }
-
-    if ($this->range === 'custom') {
-        $from = $this->from ? Carbon::parse($this->from)->startOfDay() : $now->copy()->subDays(7)->startOfDay();
-        $to = $this->to ? Carbon::parse($this->to)->endOfDay() : $now;
-        if ($from->greaterThan($to)) {
-            [$from, $to] = [$to->copy()->startOfDay(), $from->copy()->endOfDay()];
-        }
-        return [$from, $to];
-    }
-
-    // default 7d
-    return [$now->copy()->subDays(7)->startOfDay(), $now];
-});
-
-$plan = computed(function (): array {
-    $u = auth()->user();
-
-    $rawPlan =
-        data_get($u, 'subscription.plan')
-        ?? data_get($u, 'billing.plan')
-        ?? data_get($u, 'plan')
-        ?? null;
-
-    $key = is_string($rawPlan) ? strtolower(trim($rawPlan)) : null;
-
-    // Your known limits:
-    $limits = [
-        'free' => 1,
-        'pro' => 5,
-        'team' => 20,
-    ];
-
-    // Normalize unknowns to free
-    if (!in_array($key, ['free', 'pro', 'team'], true)) {
-        $key = 'free';
-    }
-
-    return [
-        'key' => $key,
-        'label' => ucfirst($key),
-        'is_team' => $key === 'team',
-        'monitor_limit' => $limits[$key] ?? 1,
-        'pro_features' => in_array($key, ['pro', 'team'], true),
-    ];
-});
-
-$scope = computed(function () {
-    $u = auth()->user();
-    $p = $this->plan;
-
-    $teamId = $u?->currentTeam?->id;
-
-    // Team plan => scope by team_id
-    if ($p['is_team'] && $teamId) {
-        return ['mode' => 'team', 'team_id' => $teamId, 'user_id' => $u?->id];
-    }
-
-    // Individual => scope by user_id
-    return ['mode' => 'user', 'team_id' => null, 'user_id' => $u?->id];
-});
-
-$monitorIds = computed(function (): array {
-    $u = auth()->user();
-    if (!$u) return [];
-
-    $s = $this->scope;
-
-    $q = Monitor::query()->select('id');
-
-    if ($s['mode'] === 'team') {
-        $q->where('team_id', $s['team_id']);
-    } else {
-        $q->where('user_id', $s['user_id']);
-    }
-
-    return $q->pluck('id')->all();
-});
-
-$kpis = computed(function (): array {
-    $u = auth()->user();
-    if (!$u) {
         return [
-            'total' => 0, 'up' => 0, 'down' => 0, 'paused' => 0,
-            'open_incidents' => 0,
-            'checks' => null,
-            'avg_ms' => null,
-            'uptime_pct' => null,
+            'name' => $planName,
+            'status' => $user->billing_status ?? 'free',
+            'monitors' => PlanLimits::baseMonitorLimit($planName),
+            'users' => PlanLimits::baseSeatLimit($planName),
+            'check_interval' => PlanLimits::baseIntervalMinutes($planName),
+            'history_days' => PlanLimits::historyDays($planName),
+            'isSubscribed' => $user->isSubscribed(),
+            'isInGrace' => $user->isInGrace(),
         ];
     }
 
-    $s = $this->scope;
-    [$from, $to] = $this->rangeWindow;
+    public function monitorStats()
+    {
+        $user = auth()->user();
 
-    $cacheKey = 'dash:kpis:v1:' . implode(':', [
-        'u' . $u->id,
-        $s['mode'] === 'team' ? ('t' . $s['team_id']) : 'solo',
-        'r' . $this->range,
-        'f' . $from->format('YmdHi'),
-        't' . $to->format('YmdHi'),
-    ]);
+        // Get team IDs safely
+        $teamIds = $user->teams()
+            ->select('teams.id')
+            ->pluck('teams.id')
+            ->toArray();
 
-    return Cache::remember($cacheKey, 30, function () use ($s, $from, $to) {
-        $monitors = Monitor::query();
+        // Get all monitors (user's personal + team monitors)
+        $monitors = Monitor::query()
+            ->where(function ($q) use ($user, $teamIds) {
+                $q->where('monitors.user_id', $user->id);
 
-        if ($s['mode'] === 'team') {
-            $monitors->where('team_id', $s['team_id']);
-        } else {
-            $monitors->where('user_id', $s['user_id']);
+                if (!empty($teamIds)) {
+                    $q->orWhereIn('monitors.team_id', $teamIds);
+                }
+            })
+            ->get();
+
+        $totalMonitors = $monitors->count();
+        $upMonitors = $monitors->where('last_status', 'up')->count();
+        $downMonitors = $monitors->where('last_status', 'down')->count();
+        $pausedMonitors = $monitors->where('paused', true)->count();
+
+        // Calculate SLA using the incidents table (actual downtime)
+        $monitorIds = $monitors->pluck('id')->toArray();
+
+        // Get total downtime from incidents in last 30 days
+        $totalDowntimeSeconds = 0;
+        if (!empty($monitorIds)) {
+            $totalDowntimeSeconds = DB::table('incidents')
+                ->whereIn('incidents.monitor_id', $monitorIds)
+                ->where('incidents.started_at', '>=', now()->subDays(30))
+                ->whereNotNull('incidents.downtime_seconds')
+                ->sum('incidents.downtime_seconds');
         }
 
-        $total = (clone $monitors)->count();
-        $paused = (clone $monitors)->where('paused', true)->count();
-        $up = (clone $monitors)->where('paused', false)->where('last_status', 'up')->count();
-        $down = (clone $monitors)->where('paused', false)->where('last_status', 'down')->count();
+        $totalDowntimeHours = round($totalDowntimeSeconds / 3600, 2);
 
-        $ids = (clone $monitors)->pluck('id')->all();
-
-        $openIncidents = 0;
-        if (!empty($ids)) {
-            $openIncidents = Incident::query()
-                ->whereIn('monitor_id', $ids)
-                ->whereNull('recovered_at')
-                ->count();
-        }
-
-        // Optional: checks-based KPIs (only if you have a MonitorCheck model)
-        $checks = null;
-        $avgMs = null;
-        $uptimePct = null;
-
-        if (!empty($ids) && class_exists(\App\Models\MonitorCheck::class)) {
-            $checkQ = \App\Models\MonitorCheck::query()
-                ->whereIn('monitor_id', $ids)
-                ->whereBetween('checked_at', [$from, $to]);
-
-            $checks = (clone $checkQ)->count();
-
-            $avgMs = (clone $checkQ)->whereNotNull('response_time_ms')->avg('response_time_ms');
-            $avgMs = $avgMs !== null ? (int) round($avgMs) : null;
-
-            $okCount = (clone $checkQ)->where('ok', true)->count();
-            $uptimePct = $checks > 0 ? round(($okCount / $checks) * 100, 2) : null;
+        // Calculate SLA percentage (using stored SLA columns from monitors)
+        $avgSla = 0;
+        if ($totalMonitors > 0) {
+            $avgSla = round(
+                $monitors->avg('sla_uptime_pct_30d') ?? 99.5,
+                2
+            );
         }
 
         return [
-            'total' => $total,
-            'up' => $up,
-            'down' => $down,
-            'paused' => $paused,
-            'open_incidents' => $openIncidents,
-            'checks' => $checks,
-            'avg_ms' => $avgMs,
-            'uptime_pct' => $uptimePct,
+            'total' => $totalMonitors,
+            'up' => $upMonitors,
+            'down' => $downMonitors,
+            'paused' => $pausedMonitors,
+            'sla' => $avgSla,
+            'downtime_hours' => $totalDowntimeHours,
+            'incident_count' => $totalMonitors > 0 ? $monitors->sum('sla_incident_count_30d') ?? 0 : 0,
         ];
-    });
-});
-
-$uptimeSeries = computed(function (): array {
-    $ids = $this->monitorIds;
-    if (empty($ids) || !class_exists(\App\Models\MonitorCheck::class)) {
-        return [];
     }
 
-    [$from, $to] = $this->rangeWindow;
+    public function recentAlerts()
+    {
+        $user = auth()->user();
 
-    // Limit series to daily bars (even for 24h we still show daily, keeps UI consistent)
-    $start = $from->copy()->startOfDay();
-    $end = $to->copy()->endOfDay();
+        // Get team IDs safely
+        $teamIds = $user->teams()
+            ->select('teams.id')
+            ->pluck('teams.id')
+            ->toArray();
 
-    $rows = \App\Models\MonitorCheck::query()
-        ->selectRaw('DATE(checked_at) as d, COUNT(*) as total, SUM(CASE WHEN ok = 1 THEN 1 ELSE 0 END) as ok_count')
-        ->whereIn('monitor_id', $ids)
-        ->whereBetween('checked_at', [$start, $end])
-        ->groupBy('d')
-        ->orderBy('d')
-        ->get()
-        ->keyBy('d');
+        // Get recent incidents (downtime events)
+        $incidents = DB::table('incidents')
+            ->join('monitors', 'incidents.monitor_id', '=', 'monitors.id')
+            ->where(function ($q) use ($user, $teamIds) {
+                $q->where('monitors.user_id', $user->id);
 
-    $out = [];
-    $cursor = $start->copy();
+                if (!empty($teamIds)) {
+                    $q->orWhereIn('monitors.team_id', $teamIds);
+                }
+            })
+            ->select(
+                'incidents.id',
+                'incidents.monitor_id',
+                'incidents.started_at',
+                'incidents.recovered_at',
+                'monitors.name'
+            )
+            ->orderBy('incidents.started_at', 'desc')
+            ->limit(5)
+            ->get();
 
-    while ($cursor->lte($end)) {
-        $d = $cursor->toDateString();
-        $row = $rows->get($d);
-
-        $total = $row?->total ? (int) $row->total : 0;
-        $ok = $row?->ok_count ? (int) $row->ok_count : 0;
-
-        $pct = $total > 0 ? round(($ok / $total) * 100, 2) : null;
-
-        $out[] = [
-            'date' => $d,
-            'label' => $cursor->format('M j'),
-            'pct' => $pct,
-        ];
-
-        $cursor->addDay();
+        return $incidents;
     }
 
-    // Keep it readable: if range is huge, slice last 30 days
-    if (count($out) > 30) {
-        $out = array_slice($out, -30);
+    public function topDownMonitors()
+    {
+        $user = auth()->user();
+
+        // Get team IDs safely
+        $teamIds = $user->teams()
+            ->select('teams.id')
+            ->pluck('teams.id')
+            ->toArray();
+
+        return Monitor::query()
+            ->where(function ($q) use ($user, $teamIds) {
+                $q->where('monitors.user_id', $user->id);
+
+                if (!empty($teamIds)) {
+                    $q->orWhereIn('monitors.team_id', $teamIds);
+                }
+            })
+            ->where('monitors.last_status', 'down')
+            ->orderBy('monitors.updated_at', 'desc')
+            ->limit(5)
+            ->get();
     }
-
-    return $out;
-});
-
-$recentIncidents = computed(function (): array {
-    $ids = $this->monitorIds;
-    if (empty($ids)) return [];
-
-    $rows = Incident::query()
-        ->with(['monitor:id,name'])
-        ->whereIn('monitor_id', $ids)
-        ->orderByDesc('started_at')
-        ->limit(10)
-        ->get();
-
-    return $rows->map(function ($i) {
-        $started = $i->started_at ? Carbon::parse($i->started_at) : null;
-        $recovered = $i->recovered_at ? Carbon::parse($i->recovered_at) : null;
-
-        $duration = null;
-        if ($started && $recovered) {
-            $duration = $started->diffForHumans($recovered, true);
-        }
-
-        return [
-            'id' => $i->id,
-            'monitor' => $i->monitor?->name ?? ('Monitor #' . $i->monitor_id),
-            'started_at' => $started?->toDayDateTimeString(),
-            'recovered_at' => $recovered?->toDayDateTimeString(),
-            'is_open' => $i->recovered_at === null,
-            'duration' => $duration,
-        ];
-    })->all();
-});
-
-$usage = computed(function (): array {
-    $p = $this->plan;
-    $used = (int) ($this->kpis['total'] ?? 0);
-    $limit = (int) ($p['monitor_limit'] ?? 1);
-
-    $pct = $limit > 0 ? min(100, (int) round(($used / $limit) * 100)) : 0;
-
-    return [
-        'used' => $used,
-        'limit' => $limit,
-        'pct' => $pct,
-        'over' => $used > $limit,
-    ];
-});
-
-?>
-
-@php
-    $kpis = $this->kpis;
-    $plan = $this->plan;
-    $usage = $this->usage;
-    $uptimeSeries = $this->uptimeSeries;
-    $recentIncidents = $this->recentIncidents;
-@endphp
-<div class="space-y-6">
-    {{-- Header row --}}
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-            <h1 class="text-2xl font-semibold text-slate-900">Dashboard</h1>
-            <p class="mt-1 text-sm text-slate-600">
-                Overview of uptime, incidents, and usage for your workspace.
-            </p>
+}; ?>
+<div class="min-h-screen bg-gray-50">
+        <!-- Header Section -->
+        <div class="bg-white border-b border-gray-200">
+            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+                <h1 class="text-4xl font-bold text-gray-900 mb-2">Dashboard</h1>
+                <p class="text-lg text-gray-600">Welcome back! Here's your monitoring overview.</p>
+            </div>
         </div>
 
-        <div class="flex flex-wrap items-center gap-2">
-            <div class="inline-flex rounded-lg border border-slate-200 bg-white p-1">
-                <button wire:click="$set('range','24h')"
-                        class="px-3 py-1.5 text-sm rounded-md {{ $range === '24h' ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-50' }}">
-                    24h
-                </button>
-                <button wire:click="$set('range','7d')"
-                        class="px-3 py-1.5 text-sm rounded-md {{ $range === '7d' ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-50' }}">
-                    7d
-                </button>
-                <button wire:click="$set('range','30d')"
-                        class="px-3 py-1.5 text-sm rounded-md {{ $range === '30d' ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-50' }}">
-                    30d
-                </button>
-                <button wire:click="$set('range','custom')"
-                        class="px-3 py-1.5 text-sm rounded-md {{ $range === 'custom' ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-50' }}">
-                    Custom
-                </button>
-            </div>
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+            @php
+                $plan = $this->plan();
+            @endphp
 
-            @if ($range === 'custom')
-                <div class="flex items-center gap-2">
-                    <input type="date" wire:model.live="from"
-                           class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900">
-                    <span class="text-sm text-slate-500">to</span>
-                    <input type="date" wire:model.live="to"
-                           class="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-900">
+            <!-- Grace Period Alert -->
+            @if ($plan['isInGrace'])
+                <div class="mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg">
+                    <div class="flex">
+                        <div class="flex-shrink-0">
+                            <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                            </svg>
+                        </div>
+                        <div class="ml-3">
+                            <p class="text-sm text-yellow-700">
+                                <strong>Payment Issue:</strong> Your subscription is in grace period. Please update your payment method.
+                            </p>
+                        </div>
+                    </div>
                 </div>
             @endif
-        </div>
-    </div>
 
-    {{-- Empty state --}}
-    @if (($kpis['total'] ?? 0) === 0)
-        <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                    <div class="text-lg font-semibold text-slate-900">No monitors yet</div>
-                    <div class="mt-1 text-sm text-slate-600">
-                        Add your first monitor to start collecting uptime, response time, and incident history.
+            <!-- Plan Status Card -->
+            <div class="bg-white rounded-xl shadow-lg p-8 mb-8 border-l-4 border-blue-600">
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h2 class="text-2xl font-bold text-gray-900">Your Plan</h2>
+                        <p class="text-gray-600 mt-1">{{ $plan['status'] === 'active' ? '✓ Plan active and running' : 'Upgrade to unlock premium features' }}</p>
+                    </div>
+                    <span class="inline-block bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-2 rounded-full font-semibold capitalize text-lg">
+                        {{ $plan['name'] }}
+                    </span>
+                </div>
+
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                    <div class="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4">
+                        <p class="text-gray-600 text-sm font-medium">Monitors</p>
+                        <p class="text-3xl font-bold text-blue-600 mt-2">{{ $plan['monitors'] }}</p>
+                    </div>
+
+                    <div class="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4">
+                        <p class="text-gray-600 text-sm font-medium">Team Members</p>
+                        <p class="text-3xl font-bold text-purple-600 mt-2">{{ $plan['users'] }}</p>
+                    </div>
+
+                    <div class="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-lg p-4">
+                        <p class="text-gray-600 text-sm font-medium">Check Interval</p>
+                        <p class="text-3xl font-bold text-emerald-600 mt-2">{{ $plan['check_interval'] }}</p>
+                    </div>
+
+                    <div class="bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg p-4">
+                        <p class="text-gray-600 text-sm font-medium">History</p>
+                        <p class="text-3xl font-bold text-orange-600 mt-2">
+                            @if ($plan['history_days'] > 1000)
+                                Unlimited
+                            @else
+                                {{ $plan['history_days'] }}d
+                            @endif
+                        </p>
                     </div>
                 </div>
 
-                <div class="flex items-center gap-2">
-                    @if (Route::has('monitors.index'))
-                        <a href="{{ route('monitors.index') }}"
-                           class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
-                            Add monitor
-                        </a>
-                    @endif
-                    @if (Route::has('billing.index'))
-                        <a href="{{ route('billing.index') }}"
-                           class="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                            Manage plan
-                        </a>
-                    @endif
-                </div>
-            </div>
-        </div>
-    @endif
-
-    {{-- KPIs --}}
-    <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div class="text-sm text-slate-600">Total monitors</div>
-            <div class="mt-2 text-3xl font-semibold text-slate-900">{{ number_format((int) ($kpis['total'] ?? 0)) }}</div>
-            <div class="mt-2 text-xs text-slate-500">Includes paused monitors.</div>
-        </div>
-
-        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div class="text-sm text-slate-600">Up</div>
-            <div class="mt-2 text-3xl font-semibold text-slate-900">{{ number_format((int) ($kpis['up'] ?? 0)) }}</div>
-            <div class="mt-2 text-xs text-slate-500">Based on last known status.</div>
-        </div>
-
-        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div class="text-sm text-slate-600">Down</div>
-            <div class="mt-2 text-3xl font-semibold text-slate-900">{{ number_format((int) ($kpis['down'] ?? 0)) }}</div>
-            <div class="mt-2 text-xs text-slate-500">Excludes paused monitors.</div>
-        </div>
-
-        <div class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <div class="text-sm text-slate-600">Open incidents</div>
-            <div class="mt-2 text-3xl font-semibold text-slate-900">{{ number_format((int) ($kpis['open_incidents'] ?? 0)) }}</div>
-            <div class="mt-2 text-xs text-slate-500">Currently ongoing incidents.</div>
-        </div>
-    </div>
-
-    {{-- Secondary KPIs + Usage --}}
-    <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
-            <div class="flex items-start justify-between gap-4">
-                <div>
-                    <div class="text-base font-semibold text-slate-900">Uptime</div>
-                    <div class="mt-1 text-sm text-slate-600">
-                        @if ($kpis['uptime_pct'] !== null)
-                            {{ $kpis['uptime_pct'] }}% uptime ({{ number_format((int) $kpis['checks']) }} checks)
-                        @else
-                            <span class="text-slate-500">No check data available yet.</span>
-                        @endif
-                    </div>
-                </div>
-
-                <div class="text-right">
-                    <div class="text-sm text-slate-600">Avg response</div>
-                    <div class="mt-1 text-lg font-semibold text-slate-900">
-                        @if ($kpis['avg_ms'] !== null)
-                            {{ number_format((int) $kpis['avg_ms']) }} ms
-                        @else
-                            —
-                        @endif
-                    </div>
-                </div>
+                <a href="{{ route('billing.index') }}" class="inline-block bg-black hover:bg-gray-900 text-white font-semibold py-3 px-8 rounded-lg transition-all">
+                    Manage Billing →
+                </a>
             </div>
 
-            {{-- Uptime bars (no external chart dependency) --}}
-            @if (!empty($uptimeSeries))
-                <div class="mt-5">
-                    <div class="flex items-end gap-1 h-24">
-                        @foreach ($uptimeSeries as $p)
-                            @php
-                                $val = $p['pct'];
-                                $h = $val === null ? 6 : max(6, min(100, (int) round($val)));
-                                $title = $p['label'] . ': ' . ($val === null ? '—' : ($val . '%'));
-                            @endphp
-                            <div class="flex-1" title="{{ $title }}">
-                                <div class="w-full rounded-md bg-slate-100 overflow-hidden">
-                                    <div class="w-full bg-slate-900/80" style="height: {{ $h }}px"></div>
+            <!-- Monitoring Stats -->
+            @php
+                $stats = $this->monitorStats();
+            @endphp
+
+            <h3 class="text-2xl font-bold text-gray-900 mb-6">Monitoring Overview</h3>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
+                <!-- Total Monitors -->
+                <div class="bg-white rounded-lg shadow p-6 border-t-4 border-blue-600 hover:shadow-lg transition">
+                    <p class="text-gray-600 text-sm font-medium">Total</p>
+                    <p class="text-4xl font-bold text-gray-900 mt-2">{{ $stats['total'] }}</p>
+                </div>
+
+                <!-- Up -->
+                <div class="bg-white rounded-lg shadow p-6 border-t-4 border-green-600 hover:shadow-lg transition">
+                    <p class="text-gray-600 text-sm font-medium">Up</p>
+                    <p class="text-4xl font-bold text-green-600 mt-2">{{ $stats['up'] }}</p>
+                </div>
+
+                <!-- Down -->
+                <div class="bg-white rounded-lg shadow p-6 border-t-4 border-red-600 hover:shadow-lg transition">
+                    <p class="text-gray-600 text-sm font-medium">Down</p>
+                    <p class="text-4xl font-bold text-red-600 mt-2">{{ $stats['down'] }}</p>
+                </div>
+
+                <!-- Paused -->
+                <div class="bg-white rounded-lg shadow p-6 border-t-4 border-yellow-600 hover:shadow-lg transition">
+                    <p class="text-gray-600 text-sm font-medium">Paused</p>
+                    <p class="text-4xl font-bold text-yellow-600 mt-2">{{ $stats['paused'] }}</p>
+                </div>
+
+                <!-- SLA -->
+                <div class="bg-white rounded-lg shadow p-6 border-t-4 border-purple-600 hover:shadow-lg transition">
+                    <p class="text-gray-600 text-sm font-medium">SLA (30d)</p>
+                    <p class="text-4xl font-bold text-purple-600 mt-2">{{ $stats['sla'] }}%</p>
+                </div>
+
+                <!-- Downtime -->
+                <div class="bg-white rounded-lg shadow p-6 border-t-4 border-indigo-600 hover:shadow-lg transition">
+                    <p class="text-gray-600 text-sm font-medium">Downtime</p>
+                    <p class="text-4xl font-bold text-indigo-600 mt-2">{{ $stats['downtime_hours'] }}h</p>
+                </div>
+            </div>
+
+            <!-- Down Monitors Alert -->
+            @php
+                $downMonitors = $this->topDownMonitors();
+            @endphp
+
+            @if ($downMonitors->count() > 0)
+                <h3 class="text-2xl font-bold text-gray-900 mb-6">⚠️ Monitors Down</h3>
+
+                <div class="grid gap-4 mb-8">
+                    @foreach ($downMonitors as $monitor)
+                        <div class="bg-gradient-to-r from-red-50 to-orange-50 rounded-lg shadow p-6 border-l-4 border-red-600">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="text-lg font-semibold text-gray-900">{{ $monitor->name }}</h4>
+                                    <p class="text-sm text-gray-600 mt-1">{{ $monitor->url }}</p>
+                                </div>
+                                <a href="{{ route('monitors.show', $monitor->id) }}" class="bg-black hover:bg-gray-900 text-white font-semibold py-2 px-6 rounded-lg transition">
+                                    View
+                                </a>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            @endif
+
+            <!-- Quick Actions -->
+            <h3 class="text-2xl font-bold text-gray-900 mb-6">Quick Actions</h3>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+                <!-- Create Monitor -->
+                <a href="{{ route('monitors.index') }}" class="bg-white rounded-lg shadow p-8 hover:shadow-lg transition transform hover:scale-105 cursor-pointer group">
+                    <div class="bg-blue-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:bg-blue-600 transition">
+                        <svg class="h-6 w-6 text-blue-600 group-hover:text-white transition" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <line x1="5" y1="12" x2="19" y2="12"></line>
+                        </svg>
+                    </div>
+                    <h4 class="text-lg font-bold text-gray-900 mb-2">Create Monitor</h4>
+                    <p class="text-gray-600 text-sm">Start monitoring a new service</p>
+                </a>
+
+                <!-- View Reports -->
+                <a href="{{ route('sla.overview') }}" class="bg-white rounded-lg shadow p-8 hover:shadow-lg transition transform hover:scale-105 cursor-pointer group">
+                    <div class="bg-purple-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:bg-purple-600 transition">
+                        <svg class="h-6 w-6 text-purple-600 group-hover:text-white transition" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19"></line>
+                            <polyline points="19 12 16 9 16 15"></polyline>
+                            <polyline points="5 12 8 9 8 15"></polyline>
+                        </svg>
+                    </div>
+                    <h4 class="text-lg font-bold text-gray-900 mb-2">View Reports</h4>
+                    <p class="text-gray-600 text-sm">Check SLA and performance</p>
+                </a>
+
+                <!-- Manage Billing -->
+                <a href="{{ route('billing.index') }}" class="bg-white rounded-lg shadow p-8 hover:shadow-lg transition transform hover:scale-105 cursor-pointer group">
+                    <div class="bg-green-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:bg-green-600 transition">
+                        <svg class="h-6 w-6 text-green-600 group-hover:text-white transition" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
+                            <line x1="1" y1="10" x2="23" y2="10"></line>
+                        </svg>
+                    </div>
+                    <h4 class="text-lg font-bold text-gray-900 mb-2">Manage Billing</h4>
+                    <p class="text-gray-600 text-sm">Upgrade plan & subscription</p>
+                </a>
+            </div>
+
+            <!-- Recent Incidents -->
+            @php
+                $recentAlerts = $this->recentAlerts();
+            @endphp
+
+            <h3 class="text-2xl font-bold text-gray-900 mb-6">Recent Activity</h3>
+
+            <div class="bg-white rounded-lg shadow overflow-hidden">
+                <div class="px-6 py-4 border-b border-gray-200">
+                    <h4 class="font-semibold text-gray-900">Latest Incidents (Last 30 days)</h4>
+                </div>
+
+                @if ($recentAlerts->count() > 0)
+                    <div class="divide-y divide-gray-200">
+                        @foreach ($recentAlerts as $alert)
+                            <div class="px-6 py-4 hover:bg-gray-50 transition cursor-pointer" onclick="window.location='{{ route('monitors.show', $alert->monitor_id) }}'">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="font-semibold text-gray-900">{{ $alert->name }}</p>
+                                        <p class="text-sm text-gray-600 mt-1">
+                                            Started: {{ \Carbon\Carbon::parse($alert->started_at)->diffForHumans() }}
+                                            @if ($alert->recovered_at)
+                                                • Recovered: {{ \Carbon\Carbon::parse($alert->recovered_at)->diffForHumans() }}
+                                            @else
+                                                • <span class="text-red-600 font-semibold">Still Down</span>
+                                            @endif
+                                        </p>
+                                    </div>
+                                    <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold {{ $alert->recovered_at ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800' }}">
+                                        {{ $alert->recovered_at ? 'Recovered' : 'Active' }}
+                                    </span>
                                 </div>
                             </div>
                         @endforeach
                     </div>
-                    <div class="mt-2 flex justify-between text-[11px] text-slate-500">
-                        <span>{{ $uptimeSeries[0]['label'] ?? '' }}</span>
-                        <span>{{ $uptimeSeries[count($uptimeSeries)-1]['label'] ?? '' }}</span>
-                    </div>
-                </div>
-            @else
-                <div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                    Uptime chart will appear after checks start running.
-                </div>
-            @endif
-
-            {{-- Pro/Team hint --}}
-            @if (!$plan['pro_features'])
-                <div class="mt-5 rounded-xl border border-slate-200 bg-white p-4">
-                    <div class="text-sm font-semibold text-slate-900">Unlock deeper analytics</div>
-                    <div class="mt-1 text-sm text-slate-600">
-                        Upgrade to Pro to keep full history and get richer SLA reporting.
-                    </div>
-                    @if (Route::has('billing.index'))
-                        <a href="{{ route('billing.index') }}" class="mt-3 inline-flex text-sm font-semibold text-slate-900 underline">
-                            View plans
-                        </a>
-                    @endif
-                </div>
-            @endif
-        </div>
-
-        <div class="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div class="text-base font-semibold text-slate-900">Plan usage</div>
-            <div class="mt-1 text-sm text-slate-600">
-                {{ $plan['label'] }} plan
-            </div>
-
-            <div class="mt-4">
-                <div class="flex items-center justify-between text-sm">
-                    <span class="text-slate-600">Monitors</span>
-                    <span class="font-semibold text-slate-900">{{ $usage['used'] }} / {{ $usage['limit'] }}</span>
-                </div>
-                <div class="mt-2 h-2 w-full rounded-full bg-slate-100 overflow-hidden">
-                    <div class="h-2 bg-slate-900" style="width: {{ $usage['pct'] }}%"></div>
-                </div>
-                @if ($usage['over'])
-                    <div class="mt-2 text-xs text-rose-600">
-                        You are over the limit. Upgrade or remove monitors to avoid enforcement.
-                    </div>
                 @else
-                    <div class="mt-2 text-xs text-slate-500">
-                        Usage updates in real time.
+                    <div class="px-6 py-12 text-center">
+                        <p class="text-gray-600 font-medium">No incidents</p>
+                        <p class="text-gray-500 text-sm mt-1">All systems are running smoothly!</p>
                     </div>
                 @endif
             </div>
-
-            <div class="mt-5 grid grid-cols-1 gap-2">
-                @if (Route::has('monitors.index'))
-                    <a href="{{ route('monitors.index') }}"
-                       class="inline-flex items-center justify-center rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800">
-                        Manage monitors
-                    </a>
-                @endif
-
-                @if (Route::has('public.status'))
-                    <a href="{{ route('public.status') }}" target="_blank" rel="noopener noreferrer"
-                       class="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                        View public status
-                    </a>
-                @endif
-
-                @if (Route::has('billing.index'))
-                    <a href="{{ route('billing.index') }}"
-                       class="inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                        Billing
-                    </a>
-                @endif
-            </div>
         </div>
     </div>
-
-    {{-- Recent incidents --}}
-    <div class="rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div class="flex items-center justify-between border-b border-slate-200 px-6 py-4">
-            <div>
-                <div class="text-base font-semibold text-slate-900">Recent incidents</div>
-                <div class="mt-1 text-sm text-slate-600">Latest incident activity across your monitors.</div>
-            </div>
-        </div>
-
-        <div class="overflow-x-auto">
-            <table class="min-w-full text-sm">
-                <thead class="bg-slate-50 text-slate-600">
-                <tr>
-                    <th class="px-6 py-3 text-left font-semibold">Monitor</th>
-                    <th class="px-6 py-3 text-left font-semibold">Status</th>
-                    <th class="px-6 py-3 text-left font-semibold">Started</th>
-                    <th class="px-6 py-3 text-left font-semibold">Recovered</th>
-                    <th class="px-6 py-3 text-left font-semibold">Duration</th>
-                </tr>
-                </thead>
-                <tbody class="divide-y divide-slate-200">
-                @forelse ($recentIncidents as $row)
-                    <tr>
-                        <td class="px-6 py-3 font-medium text-slate-900">{{ $row['monitor'] }}</td>
-                        <td class="px-6 py-3">
-                            @if ($row['is_open'])
-                                <span class="inline-flex items-center rounded-full bg-rose-50 px-2 py-1 text-xs font-semibold text-rose-700">Open</span>
-                            @else
-                                <span class="inline-flex items-center rounded-full bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-700">Resolved</span>
-                            @endif
-                        </td>
-                        <td class="px-6 py-3 text-slate-700">{{ $row['started_at'] ?? '—' }}</td>
-                        <td class="px-6 py-3 text-slate-700">{{ $row['recovered_at'] ?? ($row['is_open'] ? '—' : '—') }}</td>
-                        <td class="px-6 py-3 text-slate-700">
-                            {{ $row['is_open'] ? 'Ongoing' : ($row['duration'] ?? '—') }}
-                        </td>
-                    </tr>
-                @empty
-                    <tr>
-                        <td colspan="5" class="px-6 py-6 text-center text-slate-600">
-                            No incidents yet.
-                        </td>
-                    </tr>
-                @endforelse
-                </tbody>
-            </table>
-        </div>
-    </div>
-</div>

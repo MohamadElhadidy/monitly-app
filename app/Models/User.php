@@ -13,50 +13,34 @@ use Laravel\Sanctum\HasApiTokens;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Laravel\Paddle\Billable;
 
-
 class User extends Authenticatable implements MustVerifyEmail
 {
     use HasApiTokens;
     use Billable;
-
-    /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory;
     use HasProfilePhoto;
     use HasTeams;
     use Notifiable;
     use TwoFactorAuthenticatable;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'name',
         'email',
         'password',
     ];
-    
+
     protected function casts(): array
-{
-    return [
-        'email_verified_at' => 'datetime',
-        'password' => 'hashed',
-        
+    {
+        return [
+            'email_verified_at' => 'datetime',
+            'password' => 'hashed',
+            'next_bill_at' => 'datetime',
+            'grace_ends_at' => 'datetime',
+            'first_paid_at' => 'datetime',
+            'refund_override_until' => 'datetime',
+        ];
+    }
 
-        // Billing timestamps
-        'next_bill_at' => 'datetime',
-        'grace_ends_at' => 'datetime',
-        'first_paid_at' => 'datetime',
-        'refund_override_until' => 'datetime',
-    ];
-}
-
-    /**
-     * The attributes that should be hidden for serialization.
-     *
-     * @var array<int, string>
-     */
     protected $hidden = [
         'password',
         'remember_token',
@@ -64,22 +48,55 @@ class User extends Authenticatable implements MustVerifyEmail
         'two_factor_secret',
     ];
 
-    /**
-     * The accessors to append to the model's array form.
-     *
-     * @var array<int, string>
-     */
     protected $appends = [
         'profile_photo_url',
     ];
 
-
-    
-     /**
+    /**
      * Individual monitors owned by this user (team_id is null).
      */
     public function monitors(): HasMany
     {
         return $this->hasMany(Monitor::class);
+    }
+
+    /**
+     * Get user's current billing plan
+     */
+    public function getBillingPlan(): string
+    {
+        return $this->billing_plan ?? 'free';
+    }
+
+    /**
+     * Get user's current billing status
+     */
+    public function getBillingStatus(): string
+    {
+        return $this->billing_status ?? 'free';
+    }
+
+    /**
+     * Check if user is subscribed
+     */
+    public function isSubscribed(): bool
+    {
+        return in_array($this->billing_status, ['active']);
+    }
+
+    /**
+     * Check if user is in grace period
+     */
+    public function isInGrace(): bool
+    {
+        if ($this->billing_status !== 'grace') {
+            return false;
+        }
+
+        if (!$this->grace_ends_at) {
+            return true;
+        }
+
+        return now()->isBefore($this->grace_ends_at);
     }
 }
