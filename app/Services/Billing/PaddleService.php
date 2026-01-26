@@ -113,30 +113,74 @@ class PaddleService
             }
 
             // Fallback: Direct Paddle API call
-            $apiKey = config('services.paddle.api_key') ?? env('PADDLE_API_KEY');
-            if ($apiKey) {
-                $response = Http::withHeaders([
-                    'Authorization' => 'Bearer ' . $apiKey,
-                ])->post('https://api.paddle.com/transactions', [
-                    'items' => $items,
-                    'customer_email' => $billable->email ?? null,
-                    'return_url' => route('billing.success'),
+            // Try multiple ways to get the API key
+            $apiKey = config('services.paddle.api_key');
+            if (empty($apiKey)) {
+                $apiKey = env('PADDLE_API_KEY');
+            }
+            
+            // Debug logging
+            if (empty($apiKey)) {
+                $configValue = config('services.paddle.api_key');
+                $envValue = env('PADDLE_API_KEY');
+                Log::warning('Paddle API key not found', [
+                    'config_value' => $configValue ? 'set (length: ' . strlen($configValue) . ')' : 'null',
+                    'env_value' => $envValue ? 'set (length: ' . strlen($envValue) . ')' : 'null',
+                    'config_cached' => app()->configurationIsCached(),
                 ]);
+            } else {
+                Log::info('Paddle API key found', [
+                    'source' => config('services.paddle.api_key') ? 'config' : 'env',
+                    'key_length' => strlen($apiKey),
+                ]);
+            }
+            
+            if ($apiKey) {
+                try {
+                    $response = Http::withHeaders([
+                        'Authorization' => 'Bearer ' . $apiKey,
+                    ])->post('https://api.paddle.com/transactions', [
+                        'items' => $items,
+                        'customer_email' => $billable->email ?? null,
+                        'return_url' => route('billing.success'),
+                    ]);
 
-                if ($response->successful()) {
-                    $data = $response->json();
-                    return [
-                        'url' => $data['checkout']['url'] ?? '#',
-                        'id' => $data['id'] ?? 'checkout_' . uniqid(),
-                    ];
+                    if ($response->successful()) {
+                        $data = $response->json();
+                        return [
+                            'url' => $data['checkout']['url'] ?? '#',
+                            'id' => $data['id'] ?? 'checkout_' . uniqid(),
+                        ];
+                    } else {
+                        Log::error('Paddle API call failed', [
+                            'status' => $response->status(),
+                            'body' => $response->body(),
+                        ]);
+                    }
+                } catch (\Exception $e) {
+                    Log::error('Paddle API exception', ['error' => $e->getMessage()]);
                 }
             }
 
             // Development fallback
+            $configValue = config('services.paddle.api_key');
+            $envValue = env('PADDLE_API_KEY');
+            $message = 'Paddle API not configured. ';
+            
+            if (empty($envValue)) {
+                $message .= 'PADDLE_API_KEY is not set in your .env file.';
+            } elseif (empty($configValue) && app()->configurationIsCached()) {
+                $message .= 'PADDLE_API_KEY found in .env but config is cached. Run: php artisan config:clear';
+            } elseif (empty($configValue)) {
+                $message .= 'PADDLE_API_KEY found in .env but not in config. Check config/services.php.';
+            } else {
+                $message .= 'Unable to create checkout session. Check logs for details.';
+            }
+            
             return [
                 'url' => '#',
                 'id' => 'dev_checkout_' . uniqid(),
-                'message' => 'Paddle API not configured. Set PADDLE_API_KEY in your .env file for production.',
+                'message' => $message,
             ];
         } catch (\Exception $e) {
             Log::error('Paddle checkout error', ['error' => $e->getMessage()]);
