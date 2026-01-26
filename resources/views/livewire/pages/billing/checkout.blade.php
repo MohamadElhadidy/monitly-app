@@ -232,28 +232,80 @@ class extends Component {
 
                     <!-- Paddle Checkout Button -->
                     <div class="mb-6">
-                        @php
-                            $checkoutUrl = is_array($checkout) ? ($checkout['url'] ?? '#') : (is_object($checkout) && method_exists($checkout, 'url') ? $checkout->url : '#');
-                            $checkoutMessage = is_array($checkout) ? ($checkout['message'] ?? 'Paddle checkout not configured. Please set PADDLE_PRICE_IDS_PRO and PADDLE_PRICE_IDS_TEAM in your .env file.') : 'Paddle checkout not configured. Please set PADDLE_PRICE_IDS_PRO and PADDLE_PRICE_IDS_TEAM in your .env file.';
-                        @endphp
-                        <a 
-                            href="{{ $checkoutUrl }}" 
-                            class="w-full inline-flex items-center justify-center bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-4 rounded-lg transition duration-200"
-                            @if($checkoutUrl === '#') 
-                                onclick="event.preventDefault(); alert('{{ addslashes($checkoutMessage) }}');" 
-                            @endif
-                        >
-                            <div class="flex items-center justify-center">
-                                <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
-                                </svg>
-                                @if($checkoutUrl === '#')
-                                    Configure Paddle
-                                @else
-                                    Complete Payment Now
-                                @endif
-                            </div>
-                        </a>
+          @php
+    $checkoutUrl = '#';
+
+    if (is_array($checkout)) {
+        $checkoutUrl = $checkout['url'] ?? '#';
+
+        // If service returned "#" but we have an id, try to build a redirect URL from the checkout id.
+        if (($checkoutUrl === '#' || trim($checkoutUrl) === '') && !empty($checkout['id'])) {
+            // If you have a config/env flag for sandbox, use it.
+            // Adjust the config key to whatever you already use in your app.
+            $isSandbox = (bool) (config('cashier.sandbox') ?? env('PADDLE_SANDBOX', false));
+
+            // Paddle hosted checkout base (most common)
+            // If your Paddle setup uses a different base, change it here ONLY.
+            $base = 'https://checkout.paddle.com/checkout/';
+
+            // Some setups use sandbox checkout host; if this doesn't work, we’ll swap to the correct one.
+            if ($isSandbox) {
+                // Many accounts still use the same host; keep base same unless you know your sandbox host differs.
+                $base = 'https://checkout.paddle.com/checkout/';
+            }
+
+            $checkoutUrl = $base . ltrim((string) $checkout['id']);
+        }
+    } elseif (is_object($checkout)) {
+        // If you ever pass an object
+        $checkoutUrl = $checkout->url ?? '#';
+
+        if (($checkoutUrl === '#' || trim((string)$checkoutUrl) === '') && isset($checkout->id) && $checkout->id) {
+            $isSandbox = (bool) (config('cashier.sandbox') ?? env('PADDLE_SANDBOX', false));
+            $base = 'https://checkout.paddle.com/checkout/';
+            if ($isSandbox) {
+                $base = 'https://checkout.paddle.com/checkout/';
+            }
+            $checkoutUrl = $base . ltrim((string) $checkout->id);
+        }
+    }
+
+    // Keep your message logic as-is
+    $checkoutMessage = is_array($checkout)
+        ? ($checkout['message'] ?? 'Paddle checkout not configured. Please set PADDLE_PRICE_IDS_PRO and PADDLE_PRICE_IDS_TEAM in your .env file.')
+        : 'Paddle checkout not configured. Please set PADDLE_PRICE_IDS_PRO and PADDLE_PRICE_IDS_TEAM in your .env file.';
+@endphp
+                       {{-- Paddle Checkout Button (Overlay) --}}
+<div class="mb-6">
+    @if (is_array($checkout) && (($checkout['url'] ?? '#') === '#'))
+        <button
+            type="button"
+            class="w-full inline-flex items-center justify-center bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-4 rounded-lg transition duration-200"
+            onclick="alert('{{ addslashes($checkout['message'] ?? 'Paddle checkout is not ready. Please configure the default payment link in Paddle.') }}')"
+        >
+            <div class="flex items-center justify-center">
+                <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                </svg>
+                Configure Paddle
+            </div>
+        </button>
+    @else
+        <x-paddle-button
+            :checkout="$checkout"
+            class="w-full inline-flex items-center justify-center bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-4 rounded-lg transition duration-200"
+        >
+            <div class="flex items-center justify-center">
+                <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+                </svg>
+                Complete Payment Now
+            </div>
+        </x-paddle-button>
+    @endif
+</div>
                     </div>
 
                     <!-- Trust Badges -->
