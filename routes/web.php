@@ -75,3 +75,6 @@ Route::middleware(['auth', 'verified'])
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/timezone/update', [\App\Http\Controllers\TimezoneController::class, 'update'])->name('timezone.update');
 });
+
+// Paddle Webhook (must be outside auth middleware, CSRF is disabled for this route)
+Route::post('/webhooks/paddle', PaddleWebhookController::class)->name('webhooks.paddle');

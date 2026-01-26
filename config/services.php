@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'paddle' => [
+        'client_token' => env('PADDLE_CUSTOMER_TOKEN'),
+        'api_key' => env('PADDLE_API_KEY'),
+    ],
+
 ];
