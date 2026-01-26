@@ -205,21 +205,28 @@ class extends Component {
 
                     <!-- Paddle Checkout Button -->
                     <div class="mb-6">
-                        <x-paddle-button
-                            :checkout="$checkout"
-                            class="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-4 rounded-lg transition duration-200"
+                        @php
+                            $checkoutUrl = is_array($checkout) ? ($checkout['url'] ?? '#') : (is_object($checkout) && method_exists($checkout, 'url') ? $checkout->url : '#');
+                            $checkoutMessage = is_array($checkout) ? ($checkout['message'] ?? 'Paddle checkout not configured. Please set PADDLE_PRICE_IDS_PRO and PADDLE_PRICE_IDS_TEAM in your .env file.') : 'Paddle checkout not configured. Please set PADDLE_PRICE_IDS_PRO and PADDLE_PRICE_IDS_TEAM in your .env file.';
+                        @endphp
+                        <a 
+                            href="{{ $checkoutUrl }}" 
+                            class="w-full inline-flex items-center justify-center bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-4 rounded-lg transition duration-200"
+                            @if($checkoutUrl === '#') 
+                                onclick="event.preventDefault(); alert('{{ addslashes($checkoutMessage) }}');" 
+                            @endif
                         >
                             <div class="flex items-center justify-center">
                                 <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
                                 </svg>
-                                @if(($checkout['url'] ?? '#') === '#')
+                                @if($checkoutUrl === '#')
                                     Configure Paddle
                                 @else
                                     Complete Payment Now
                                 @endif
                             </div>
-                        </x-paddle-button>
+                        </a>
                     </div>
 
                     <!-- Trust Badges -->
