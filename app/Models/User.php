@@ -27,6 +27,7 @@ class User extends Authenticatable implements MustVerifyEmail
         'name',
         'email',
         'password',
+        'timezone',
     ];
 
     protected function casts(): array

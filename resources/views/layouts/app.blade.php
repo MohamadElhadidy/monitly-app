@@ -220,6 +220,38 @@
                             <span class="text-sm font-semibold capitalize">{{ $plan }}</span>
                         </div>
 
+                        <!-- Timezone Selector -->
+                        <div class="relative">
+                            <select 
+                                onchange="updateTimezone(this.value)"
+                                class="appearance-none bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                @php
+                                    $timezones = [
+                                        'UTC' => 'UTC',
+                                        'America/New_York' => 'ET',
+                                        'America/Chicago' => 'CT',
+                                        'America/Denver' => 'MT',
+                                        'America/Los_Angeles' => 'PT',
+                                        'Europe/London' => 'GMT',
+                                        'Europe/Paris' => 'CET',
+                                        'Europe/Berlin' => 'CET',
+                                        'Asia/Tokyo' => 'JST',
+                                        'Asia/Shanghai' => 'CST',
+                                        'Asia/Dubai' => 'GST',
+                                        'Asia/Kolkata' => 'IST',
+                                        'Australia/Sydney' => 'AEDT',
+                                        'America/Sao_Paulo' => 'BRT',
+                                    ];
+                                    $currentTimezone = $user->timezone ?? 'UTC';
+                                @endphp
+                                @foreach ($timezones as $tz => $label)
+                                    <option value="{{ $tz }}" {{ $currentTimezone === $tz ? 'selected' : '' }}>
+                                        {{ $label }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        </div>
+
                         <!-- Notifications (placeholder) -->
                         <button class="relative p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors">
                             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -241,5 +273,30 @@
     </div>
 
     @livewireScripts
+    <script>
+        function updateTimezone(timezone) {
+            fetch('{{ route('timezone.update') }}', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify({ timezone: timezone })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Reload the page to apply the new timezone
+                    window.location.reload();
+                } else {
+                    console.error('Failed to update timezone');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+    </script>
 </body>
 </html>

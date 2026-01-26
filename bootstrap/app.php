@@ -25,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Apply to all web requests; the middleware only acts when a user is authenticated
         $middleware->web(append: [
             EnsureNotBanned::class,
+            \App\Http\Middleware\SetUserTimezone::class,
         ]);
         
         $middleware->web(append: [

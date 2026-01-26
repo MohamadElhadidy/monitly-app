@@ -19,6 +19,63 @@
             </div>
 
             <div class="hidden sm:flex sm:items-center sm:ms-6">
+                <!-- Timezone Selector -->
+                <div class="ms-3 relative">
+                    <x-dropdown align="right" width="48">
+                        <x-slot name="trigger">
+                            <button type="button" class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-gray-500 bg-white hover:text-gray-700 focus:outline-none focus:bg-gray-50 active:bg-gray-50 transition ease-in-out duration-150">
+                                <svg class="me-2 size-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                {{ Auth::user()->timezone ?? 'UTC' }}
+                                <svg class="ms-2 -me-0.5 size-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+                                </svg>
+                            </button>
+                        </x-slot>
+
+                        <x-slot name="content">
+                            <div class="block px-4 py-2 text-xs text-gray-400">
+                                {{ __('Select Timezone') }}
+                            </div>
+                            <div class="max-h-64 overflow-y-auto">
+                                @php
+                                    $timezones = [
+                                        'UTC' => 'UTC (Coordinated Universal Time)',
+                                        'America/New_York' => 'Eastern Time (ET)',
+                                        'America/Chicago' => 'Central Time (CT)',
+                                        'America/Denver' => 'Mountain Time (MT)',
+                                        'America/Los_Angeles' => 'Pacific Time (PT)',
+                                        'Europe/London' => 'London (GMT)',
+                                        'Europe/Paris' => 'Paris (CET)',
+                                        'Europe/Berlin' => 'Berlin (CET)',
+                                        'Asia/Tokyo' => 'Tokyo (JST)',
+                                        'Asia/Shanghai' => 'Shanghai (CST)',
+                                        'Asia/Dubai' => 'Dubai (GST)',
+                                        'Asia/Kolkata' => 'Mumbai (IST)',
+                                        'Australia/Sydney' => 'Sydney (AEDT)',
+                                        'America/Sao_Paulo' => 'São Paulo (BRT)',
+                                    ];
+                                    $currentTimezone = Auth::user()->timezone ?? 'UTC';
+                                @endphp
+                                @foreach ($timezones as $tz => $label)
+                                    <button 
+                                        type="button"
+                                        onclick="updateTimezone('{{ $tz }}')"
+                                        class="w-full text-left px-4 py-2 text-sm {{ $currentTimezone === $tz ? 'bg-gray-100 text-gray-900 font-medium' : 'text-gray-700 hover:bg-gray-50' }} transition">
+                                        {{ $label }}
+                                        @if ($currentTimezone === $tz)
+                                            <svg class="inline-block ms-2 size-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                                            </svg>
+                                        @endif
+                                    </button>
+                                @endforeach
+                            </div>
+                        </x-slot>
+                    </x-dropdown>
+                </div>
+
                 <!-- Teams Dropdown -->
                 @if (Laravel\Jetstream\Jetstream::hasTeamFeatures())
                     <div class="ms-3 relative">
@@ -160,6 +217,41 @@
             </div>
 
             <div class="mt-3 space-y-1">
+                <!-- Timezone Selector (Mobile) -->
+                <div class="px-4 py-2">
+                    <label class="block text-xs font-medium text-gray-400 mb-2">{{ __('Timezone') }}</label>
+                    <select 
+                        onchange="updateTimezone(this.value)"
+                        class="w-full rounded-md border-gray-300 text-sm focus:border-indigo-500 focus:ring-indigo-500">
+                        @php
+                            $timezones = [
+                                'UTC' => 'UTC (Coordinated Universal Time)',
+                                'America/New_York' => 'Eastern Time (ET)',
+                                'America/Chicago' => 'Central Time (CT)',
+                                'America/Denver' => 'Mountain Time (MT)',
+                                'America/Los_Angeles' => 'Pacific Time (PT)',
+                                'Europe/London' => 'London (GMT)',
+                                'Europe/Paris' => 'Paris (CET)',
+                                'Europe/Berlin' => 'Berlin (CET)',
+                                'Asia/Tokyo' => 'Tokyo (JST)',
+                                'Asia/Shanghai' => 'Shanghai (CST)',
+                                'Asia/Dubai' => 'Dubai (GST)',
+                                'Asia/Kolkata' => 'Mumbai (IST)',
+                                'Australia/Sydney' => 'Sydney (AEDT)',
+                                'America/Sao_Paulo' => 'São Paulo (BRT)',
+                            ];
+                            $currentTimezone = Auth::user()->timezone ?? 'UTC';
+                        @endphp
+                        @foreach ($timezones as $tz => $label)
+                            <option value="{{ $tz }}" {{ $currentTimezone === $tz ? 'selected' : '' }}>
+                                {{ $label }}
+                            </option>
+                        @endforeach
+                    </select>
+                </div>
+
+                <div class="border-t border-gray-200 my-2"></div>
+
                 <!-- Account Management -->
                 <x-responsive-nav-link href="{{ route('profile.show') }}" :active="request()->routeIs('profile.show')">
                     {{ __('Profile') }}

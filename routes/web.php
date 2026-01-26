@@ -71,3 +71,7 @@ Route::middleware(['auth', 'verified'])
         Route::get('/billing/success', [\App\Http\Controllers\Billing\BillingController::class, 'success'])->name('success');
         Route::post('/billing/cancel', [\App\Http\Controllers\Billing\BillingController::class, 'cancel'])->name('cancel');
     });
+
+Route::middleware(['auth', 'verified'])->group(function () {
+    Route::post('/timezone/update', [\App\Http\Controllers\TimezoneController::class, 'update'])->name('timezone.update');
+});
