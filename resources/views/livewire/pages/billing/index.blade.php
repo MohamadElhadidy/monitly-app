@@ -263,7 +263,11 @@ class extends Component {
                             </ul>
 
                             <div class="mt-6">
-                                @if ($isCurrentPlan)
+                                @php
+                                    $availableAddons = $this->getAvailableAddons($planKey);
+                                @endphp
+                                
+                                @if ($isCurrentPlan && $planKey !== 'free')
                                     <button disabled class="w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-400 bg-gray-50 cursor-not-allowed">
                                         Current Plan
                                     </button>
@@ -276,10 +280,6 @@ class extends Component {
                                             </button>
                                         </form>
                                     @else
-                                        @php
-                                            $availableAddons = $this->getAvailableAddons($planKey);
-                                        @endphp
-                                        
                                         @if (count($availableAddons) > 0)
                                             <div class="mb-4 p-4 bg-gray-50 rounded-md border border-gray-200">
                                                 <label class="block text-xs font-medium text-gray-700 mb-3">Optional Add-ons:</label>
@@ -312,7 +312,13 @@ class extends Component {
                                             @csrf
                                             <input type="hidden" name="plan" value="{{ $planKey }}">
                                             <button type="submit" class="w-full px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white {{ $planKey === 'team' ? 'bg-blue-600 hover:bg-blue-700' : ($planKey === 'pro' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-gray-600 hover:bg-gray-700') }} focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                                                {{ $planKey === 'free' ? 'Use Free Plan' : 'Subscribe' }}
+                                                @if ($isCurrentPlan && $planKey === 'free')
+                                                    Add Add-ons
+                                                @elseif ($planKey === 'free')
+                                                    Use Free Plan
+                                                @else
+                                                    Subscribe
+                                                @endif
                                             </button>
                                         </form>
                                     @endif
