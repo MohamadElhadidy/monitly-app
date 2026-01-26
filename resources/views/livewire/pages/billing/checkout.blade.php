@@ -7,17 +7,27 @@ use Livewire\Attributes\Layout;
 new
 #[Layout('layouts.app')] 
 class extends Component {
-    public $plan;
-    public $scope;
-    public $addon;
+    public $plan = 'pro';
+    public $addons = [];
     public $plans;
-    public $addons;
+    public $addonsConfig;
     public $checkout;
 
     public function mount()
     {
+        // Get data from request (passed from controller)
+        $request = request();
+        $this->plan = $request->get('plan', 'pro');
+        $addonsFromRequest = $request->get('addons', []);
+        
+        // Handle backward compatibility with single addon
+        if (empty($addonsFromRequest) && $request->has('addon')) {
+            $addonsFromRequest = [$request->get('addon')];
+        }
+        
+        $this->addons = is_array($addonsFromRequest) ? array_filter($addonsFromRequest) : [];
         $this->plans = config('billing.plans', []);
-        $this->addons = config('billing.addons', []);
+        $this->addonsConfig = config('billing.addons', []);
         $this->checkout = session('checkout', ['url' => '#', 'id' => '']);
     }
 }; ?>
@@ -63,34 +73,58 @@ class extends Component {
 
                         @php
                             $planData = $plans[$plan] ?? [];
-                            $addonData = $addon ? $addons[$addon] ?? [] : null;
+                            $selectedAddons = [];
+                            $totalAddonPrice = 0;
+                            
+                            foreach ($addons as $addonKey) {
+                                if (!empty($addonKey) && isset($addonsConfig[$addonKey])) {
+                                    $selectedAddons[] = $addonsConfig[$addonKey];
+                                    $totalAddonPrice += $addonsConfig[$addonKey]['price'] ?? 0;
+                                }
+                            }
                         @endphp
 
                         <!-- Plan Item -->
-                        <div class="flex justify-between items-center mb-4">
-                            <div>
-                                <p class="font-semibold text-gray-900">{{ $planData['name'] ?? 'Plan' }}</p>
-                                <p class="text-sm text-gray-600">{{ ucfirst($planData['billing_cycle'] ?? 'monthly') }} billing</p>
+                        @if ($plan !== 'free')
+                            <div class="flex justify-between items-center mb-4">
+                                <div>
+                                    <p class="font-semibold text-gray-900">{{ $planData['name'] ?? 'Plan' }}</p>
+                                    <p class="text-sm text-gray-600">{{ ucfirst($planData['billing_cycle'] ?? 'monthly') }} billing</p>
+                                </div>
+                                <p class="text-lg font-bold text-gray-900">${{ $planData['price'] ?? 0 }}/mo</p>
                             </div>
-                            <p class="text-lg font-bold text-gray-900">${{ $planData['price'] ?? 0 }}/mo</p>
-                        </div>
+                        @else
+                            <div class="flex justify-between items-center mb-4">
+                                <div>
+                                    <p class="font-semibold text-gray-900">{{ $planData['name'] ?? 'Free Plan' }}</p>
+                                    <p class="text-sm text-gray-600">Base plan</p>
+                                </div>
+                                <p class="text-lg font-bold text-gray-900">Free</p>
+                            </div>
+                        @endif
 
-                        <!-- Addon Item -->
-                        @if ($addonData)
+                        <!-- Addon Items -->
+                        @foreach ($selectedAddons as $addonData)
                             <div class="flex justify-between items-center mb-4">
                                 <div>
                                     <p class="font-semibold text-gray-900">{{ $addonData['name'] ?? 'Add-on' }}</p>
-                                    <p class="text-sm text-gray-600">{{ $addonData['description'] ?? '' }}</p>
+                                    <p class="text-sm text-gray-600">
+                                        @if (isset($addonData['description']))
+                                            {{ $addonData['description'] }}
+                                        @elseif (isset($addonData['pack_size']))
+                                            +{{ $addonData['pack_size'] }} {{ str_contains($addonData['name'], 'Monitor') ? 'monitors' : 'team members' }}
+                                        @endif
+                                    </p>
                                 </div>
                                 <p class="text-lg font-bold text-gray-900">${{ $addonData['price'] ?? 0 }}/mo</p>
                             </div>
-                        @endif
+                        @endforeach
 
                         <!-- Total -->
                         <div class="flex justify-between items-center pt-4 border-t border-gray-200">
                             <p class="text-lg font-bold text-gray-900">Total</p>
                             <p class="text-2xl font-bold text-blue-600">
-                                ${{ ($planData['price'] ?? 0) + ($addonData['price'] ?? 0) }}<span class="text-sm text-gray-600">/mo</span>
+                                ${{ ($planData['price'] ?? 0) + $totalAddonPrice }}<span class="text-sm text-gray-600">/mo</span>
                             </p>
                         </div>
                     </div>
