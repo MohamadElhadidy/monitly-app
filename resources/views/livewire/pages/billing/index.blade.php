@@ -10,12 +10,25 @@ new
 class extends Component {
     public array $currentBilling = [];
     public array $plans = [];
+    public array $addons = [];
     
     public function mount(BillingService $billingService)
     {
         $user = auth()->user();
         $this->currentBilling = $billingService->current($user);
         $this->plans = config('billing.plans', []);
+        $this->addons = config('billing.addons', []);
+    }
+
+    public function getAvailableAddons(string $planKey): array
+    {
+        if ($planKey === 'free') {
+            return [];
+        }
+
+        return array_filter($this->addons, function($addon) use ($planKey) {
+            return in_array($planKey, $addon['allowed_plans'] ?? []);
+        }, ARRAY_FILTER_USE_BOTH);
     }
 }; ?>
 
@@ -235,9 +248,46 @@ class extends Component {
                                                 </button>
                                             </form>
                                         @else
-                                            <form method="POST" action="{{ route('billing.checkout') }}" class="w-full">
+                                            @php
+                                                $availableAddons = $this->getAvailableAddons($planKey);
+                                            @endphp
+                                            
+                                            @if (count($availableAddons) > 0)
+                                                <div class="mb-4 space-y-2">
+                                                    <label class="block text-xs font-semibold text-gray-700 mb-2">Optional Add-ons:</label>
+                                                    @foreach ($availableAddons as $addonKey => $addon)
+                                                        <label class="flex items-center gap-2 p-2 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                                                            <input 
+                                                                type="radio" 
+                                                                name="addon_{{ $planKey }}" 
+                                                                value="{{ $addonKey }}"
+                                                                onchange="document.getElementById('addon-input-{{ $planKey }}').value = '{{ $addonKey }}'"
+                                                                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                            />
+                                                            <div class="flex-1">
+                                                                <div class="text-sm font-medium text-gray-900">{{ $addon['name'] }}</div>
+                                                                <div class="text-xs text-gray-600">+${{ $addon['price'] }}/mo</div>
+                                                            </div>
+                                                        </label>
+                                                    @endforeach
+                                                    <label class="flex items-center gap-2 p-2 rounded-lg border border-gray-200 hover:bg-gray-50 cursor-pointer">
+                                                        <input 
+                                                            type="radio" 
+                                                            name="addon_{{ $planKey }}" 
+                                                            value=""
+                                                            checked
+                                                            onchange="document.getElementById('addon-input-{{ $planKey }}').value = ''"
+                                                            class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                                        />
+                                                        <div class="text-sm text-gray-700">No add-on</div>
+                                                    </label>
+                                                </div>
+                                            @endif
+
+                                            <form method="POST" action="{{ route('billing.checkout') }}" class="w-full" id="checkout-form-{{ $planKey }}">
                                                 @csrf
                                                 <input type="hidden" name="plan" value="{{ $planKey }}">
+                                                <input type="hidden" name="addon" id="addon-input-{{ $planKey }}" value="">
                                                 <button type="submit" class="w-full py-3 px-4 rounded-lg font-semibold text-white {{ $planKey === 'team' ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700' : 'bg-purple-600 hover:bg-purple-700' }} transition shadow-lg hover:shadow-xl">
                                                     {{ $planKey === 'free' ? 'Use Free' : 'Subscribe Now' }}
                                                 </button>
@@ -250,6 +300,49 @@ class extends Component {
                     </div>
                 @endforeach
             </div>
+
+            <!-- Add-ons Section (for current subscribers) -->
+            @if ($currentBilling['status'] === 'active' && in_array($currentBilling['plan'], ['pro', 'team']))
+                @php
+                    $currentPlanAddons = $this->getAvailableAddons($currentBilling['plan']);
+                @endphp
+                
+                @if (count($currentPlanAddons) > 0)
+                    <div class="mb-16">
+                        <h2 class="text-3xl font-bold text-gray-900 mb-6">Available Add-ons</h2>
+                        <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            @foreach ($currentPlanAddons as $addonKey => $addon)
+                                <div class="bg-white rounded-xl border border-gray-200 shadow-md hover:shadow-lg transition p-6">
+                                    <h3 class="text-lg font-bold text-gray-900 mb-2">{{ $addon['name'] }}</h3>
+                                    <div class="text-2xl font-bold text-gray-900 mb-4">
+                                        ${{ $addon['price'] }}<span class="text-sm text-gray-600 font-normal">/month</span>
+                                    </div>
+                                    
+                                    @if (isset($addon['pack_size']))
+                                        <p class="text-sm text-gray-600 mb-4">
+                                            Adds <strong>{{ $addon['pack_size'] }}</strong> 
+                                            {{ str_contains($addon['name'], 'Monitor') ? 'monitors' : 'team members' }} to your plan
+                                        </p>
+                                    @else
+                                        <p class="text-sm text-gray-600 mb-4">
+                                            {{ $addon['name'] }}
+                                        </p>
+                                    @endif
+
+                                    <form method="POST" action="{{ route('billing.checkout') }}">
+                                        @csrf
+                                        <input type="hidden" name="plan" value="{{ $currentBilling['plan'] }}">
+                                        <input type="hidden" name="addon" value="{{ $addonKey }}">
+                                        <button type="submit" class="w-full py-2 px-4 rounded-lg font-semibold text-white bg-blue-600 hover:bg-blue-700 transition">
+                                            Add to Subscription
+                                        </button>
+                                    </form>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+            @endif
 
             <!-- FAQ Section -->
             <div class="max-w-3xl mx-auto">
