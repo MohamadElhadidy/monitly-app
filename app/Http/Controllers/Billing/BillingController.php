@@ -107,12 +107,23 @@ class BillingController extends Controller
     {
         try {
             $user = $request->user();
-            $this->paddleService->cancelSubscription($user);
-            Log::info('Subscription cancelled', ['user_id' => $user->id]);
-            return back()->with('success', 'Subscription cancelled');
+            
+            // Check if user has an active subscription
+            if (!in_array($user->billing_status ?? 'free', ['active', 'grace'])) {
+                return back()->with('error', 'No active subscription to cancel.');
+            }
+            
+            $result = $this->paddleService->cancelSubscription($user);
+            
+            if ($result) {
+                Log::info('Subscription cancelled', ['user_id' => $user->id]);
+                return back()->with('success', 'Your subscription has been cancelled. You will retain access until the end of your billing period.');
+            } else {
+                return back()->with('error', 'Failed to cancel subscription. Please try again or contact support.');
+            }
         } catch (\Exception $e) {
-            Log::error('Cancel error', ['error' => $e->getMessage()]);
-            return back()->with('error', 'Failed to cancel');
+            Log::error('Cancel error', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return back()->with('error', 'An error occurred while cancelling. Please contact support if the issue persists.');
         }
     }
 }

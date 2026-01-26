@@ -129,13 +129,43 @@ class PaddleService
     public function cancelSubscription(Model $billable): bool
     {
         try {
+            // If using Laravel Cashier Paddle, cancel the subscription properly
+            if (method_exists($billable, 'subscription')) {
+                $subscription = $billable->subscription('default');
+                
+                if ($subscription && method_exists($subscription, 'active') && $subscription->active()) {
+                    // Cancel at period end (allows access until end of billing period)
+                    if (method_exists($subscription, 'cancel')) {
+                        $subscription->cancel();
+                        Log::info('Subscription cancelled via Cashier', ['billable_id' => $billable->id]);
+                    } elseif (method_exists($subscription, 'cancelNow')) {
+                        // Immediate cancellation
+                        $subscription->cancelNow();
+                        Log::info('Subscription cancelled immediately via Cashier', ['billable_id' => $billable->id]);
+                    }
+                }
+            }
+            
+            // Update local database
             $billable->update([
                 'billing_status' => 'canceled',
                 'billing_plan' => 'free',
             ]);
+            
             return true;
         } catch (\Exception $e) {
-            Log::error('Cancel subscription error', ['error' => $e->getMessage()]);
+            Log::error('Cancel subscription error', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            
+            // Still update local database even if Paddle cancellation fails
+            try {
+                $billable->update([
+                    'billing_status' => 'canceled',
+                    'billing_plan' => 'free',
+                ]);
+            } catch (\Exception $dbError) {
+                Log::error('Failed to update local billing status', ['error' => $dbError->getMessage()]);
+            }
+            
             return false;
         }
     }

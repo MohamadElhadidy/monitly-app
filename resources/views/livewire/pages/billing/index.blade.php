@@ -94,8 +94,8 @@ class extends Component {
                             @endif
                         </div>
                         
-                        @if ($subscription && method_exists($subscription, 'paddleCustomer'))
-                            <div class="mt-4 pt-4 border-t border-gray-200">
+                        <div class="mt-4 pt-4 border-t border-gray-200 flex flex-wrap gap-3">
+                            @if ($subscription && method_exists($subscription, 'paddleCustomer'))
                                 <a href="https://customer.paddle.com/billing/customers/{{ $user->paddle_customer_id ?? 'manage' }}" 
                                    target="_blank" 
                                    class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
@@ -104,17 +104,81 @@ class extends Component {
                                     </svg>
                                     View Invoices & Payment History
                                 </a>
+                            @endif
+                            
+                            @if ($currentBilling['status'] === 'active' && $currentBilling['plan'] !== 'free')
+                                <button 
+                                    onclick="document.getElementById('cancel-modal').classList.remove('hidden')"
+                                    class="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                    </svg>
+                                    Cancel Subscription
+                                </button>
+                            @endif
+                        </div>
+                        
+                        <!-- Cancel Confirmation Modal -->
+                        @if ($currentBilling['status'] === 'active' && $currentBilling['plan'] !== 'free')
+                            <div id="cancel-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+                                <div class="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4 p-6">
+                                    <h3 class="text-xl font-bold text-gray-900 mb-4">Cancel Subscription?</h3>
+                                    <p class="text-gray-600 mb-6">
+                                        Are you sure you want to cancel your {{ ucfirst($currentBilling['plan']) }} subscription? 
+                                        You'll lose access to premium features immediately, and your account will be downgraded to the Free plan.
+                                    </p>
+                                    @if ($currentBilling['next_bill_at'])
+                                        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-6">
+                                            <p class="text-sm text-yellow-800">
+                                                <strong>Note:</strong> Your subscription will remain active until {{ $currentBilling['next_bill_at']->format('M d, Y') }}. 
+                                                You'll continue to have access until then.
+                                            </p>
+                                        </div>
+                                    @endif
+                                    <div class="flex gap-3">
+                                        <form method="POST" action="{{ route('billing.cancel') }}" class="flex-1">
+                                            @csrf
+                                            <button type="submit" class="w-full px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium">
+                                                Yes, Cancel Subscription
+                                            </button>
+                                        </form>
+                                        <button 
+                                            onclick="document.getElementById('cancel-modal').classList.add('hidden')"
+                                            class="flex-1 px-4 py-2 bg-gray-200 text-gray-800 rounded-lg hover:bg-gray-300 transition font-medium">
+                                            Keep Subscription
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         @endif
                     </div>
                 @elseif ($currentBilling['status'] === 'grace')
-                    <div class="mt-6 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                        <p class="text-yellow-800 font-semibold">
-                            ⚠ Your subscription is in grace period
-                            @if ($currentBilling['grace_ends_at'])
-                                • Ends: {{ $currentBilling['grace_ends_at']->format('M d, Y') }}
-                            @endif
-                        </p>
+                    <div class="mt-6 bg-white border border-yellow-200 rounded-xl shadow-lg p-6">
+                        <h2 class="text-xl font-bold text-gray-900 mb-4">Subscription Status</h2>
+                        <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                            <p class="text-yellow-800 font-semibold">
+                                ⚠ Your subscription is in grace period
+                                @if ($currentBilling['grace_ends_at'])
+                                    • Ends: {{ $currentBilling['grace_ends_at']->format('M d, Y') }}
+                                @endif
+                            </p>
+                            <p class="text-sm text-yellow-700 mt-2">
+                                Please update your payment method to continue your subscription, or it will be canceled automatically.
+                            </p>
+                        </div>
+                        <div class="flex gap-3">
+                            <a href="https://customer.paddle.com/billing/customers/{{ $user->paddle_customer_id ?? 'manage' }}" 
+                               target="_blank" 
+                               class="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-medium">
+                                Update Payment Method
+                            </a>
+                            <form method="POST" action="{{ route('billing.cancel') }}" class="inline">
+                                @csrf
+                                <button type="submit" class="inline-flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition font-medium">
+                                    Cancel Subscription
+                                </button>
+                            </form>
+                        </div>
                     </div>
                 @endif
             </div>
