@@ -12,11 +12,13 @@ class extends Component {
     public $addon;
     public $plans;
     public $addons;
+    public $checkout;
 
     public function mount()
     {
         $this->plans = config('billing.plans', []);
         $this->addons = config('billing.addons', []);
+        $this->checkout = session('checkout', ['url' => '#', 'id' => '']);
     }
 }; ?>
 
@@ -30,6 +32,20 @@ class extends Component {
                 </svg>
                 Back to Plans
             </a>
+
+            @if (session('error'))
+                <div class="mb-6 rounded-xl border border-rose-200 bg-rose-50 shadow-sm p-6">
+                    <div class="text-sm font-semibold text-rose-800">Error</div>
+                    <div class="mt-1 text-sm text-rose-700">{{ session('error') }}</div>
+                </div>
+            @endif
+
+            @if (($checkout['message'] ?? null))
+                <div class="mb-6 rounded-xl border border-yellow-200 bg-yellow-50 shadow-sm p-6">
+                    <div class="text-sm font-semibold text-yellow-800">Configuration Required</div>
+                    <div class="mt-1 text-sm text-yellow-700">{{ $checkout['message'] }}</div>
+                </div>
+            @endif
 
             <!-- Card -->
             <div class="bg-white rounded-2xl shadow-xl overflow-hidden">
@@ -157,7 +173,11 @@ class extends Component {
                                 <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
                                 </svg>
-                                Complete Payment Now
+                                @if(($checkout['url'] ?? '#') === '#')
+                                    Configure Paddle
+                                @else
+                                    Complete Payment Now
+                                @endif
                             </div>
                         </x-paddle-button>
                     </div>

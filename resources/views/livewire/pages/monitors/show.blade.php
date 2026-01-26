@@ -266,6 +266,29 @@ class extends Component
         $this->flashError = null;
     }
 
+    public bool $showDeleteModal = false;
+
+    public function confirmDelete(): void
+    {
+        abort_unless(auth()->user()->can('delete', $this->monitor), 403);
+        $this->showDeleteModal = true;
+    }
+
+    public function cancelDelete(): void
+    {
+        $this->showDeleteModal = false;
+    }
+
+    public function delete(): void
+    {
+        abort_unless(auth()->user()->can('delete', $this->monitor), 403);
+        
+        $monitorName = $this->monitor->name;
+        $this->monitor->delete();
+
+        return $this->redirect(route('monitors.index'), navigate: true);
+    }
+
     private function incidentTimeline30d(int $monitorId): array
     {
         $now = now();
@@ -342,6 +365,7 @@ class extends Component
             'pause_resume' => $user->can('pauseResume', $this->monitor),
             'edit_settings' => $user->can('editSettings', $this->monitor),
             'manage_permissions' => $this->canManagePermissions(),
+            'delete' => $user->can('delete', $this->monitor),
         ];
 
         $lastCheckAt = $this->monitor->latestCheck?->checked_at?->format('Y-m-d H:i:s') ?? '—';
@@ -516,6 +540,16 @@ class extends Component
                             Team Notifications
                         </a>
                     @endif
+                @endif
+
+                @if ($can['delete'])
+                    <button
+                        type="button"
+                        wire:click="confirmDelete"
+                        class="rounded-lg border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50"
+                    >
+                        Delete Monitor
+                    </button>
                 @endif
 
                 <a href="{{ route('monitors.index') }}" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">
@@ -923,4 +957,49 @@ class extends Component
             </div>
         </x-ui.card>
     @endif
+
+    {{-- Delete Confirmation Modal --}}
+    <div
+        x-cloak
+        x-show="$wire.showDeleteModal"
+        x-transition.opacity
+        style="display: none;"
+        class="fixed inset-0 z-50"
+    >
+        <div class="absolute inset-0 bg-slate-900/50" @click="$wire.cancelDelete()"></div>
+        <div class="absolute inset-0 flex items-center justify-center p-4">
+            <div class="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-lg">
+                <div class="p-6">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="flex-shrink-0 w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                            <svg class="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-lg font-semibold text-slate-900">Delete Monitor</h3>
+                            <p class="text-sm text-slate-600">This action cannot be undone.</p>
+                        </div>
+                    </div>
+                    <p class="text-sm text-slate-700 mb-6">
+                        Are you sure you want to delete <strong>{{ $monitor->name }}</strong>? All associated checks, incidents, and SLA data will be permanently deleted.
+                    </p>
+                    <div class="flex items-center justify-end gap-3">
+                        <x-ui.button variant="secondary" wire:click="cancelDelete">
+                            Cancel
+                        </x-ui.button>
+                        <button
+                            type="button"
+                            wire:click="delete"
+                            wire:loading.attr="disabled"
+                            class="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+                        >
+                            <span wire:loading.remove wire:target="delete">Delete Monitor</span>
+                            <span wire:loading wire:target="delete">Deleting…</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>

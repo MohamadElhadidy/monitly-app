@@ -40,20 +40,47 @@ class BillingController extends Controller
             );
 
             if (!$checkout) {
-                return back()->with('error', 'Failed to create checkout');
+                return back()->with('error', 'Failed to create checkout. Please ensure Paddle price IDs are configured.');
             }
 
             Log::info('Checkout initiated', ['user_id' => $user->id, 'plan' => $plan]);
 
-            return view('livewire.pages.billing.checkout', [
-                'checkout' => $checkout,
+            return redirect()->route('billing.checkout.page', [
                 'plan' => $plan,
                 'addon' => $addon,
-            ]);
+            ])->with('checkout', $checkout);
         } catch (\Exception $e) {
             Log::error('Checkout error', ['error' => $e->getMessage()]);
-            return back()->with('error', 'An error occurred');
+            return back()->with('error', 'An error occurred: ' . $e->getMessage());
         }
+    }
+
+    public function checkoutPage(Request $request)
+    {
+        $checkout = $request->session()->get('checkout');
+        $plan = $request->get('plan', 'pro');
+        $addon = $request->get('addon');
+
+        if (!$checkout) {
+            // If no checkout session, create one
+            $user = $request->user();
+            $checkout = $this->paddleService->createCheckoutSession(
+                billable: $user,
+                plan: $plan,
+                addon: $addon,
+            );
+
+            if (!$checkout) {
+                return redirect()->route('billing.index')
+                    ->with('error', 'Failed to create checkout. Please ensure Paddle price IDs are configured.');
+            }
+        }
+
+        return view('livewire.pages.billing.checkout', [
+            'checkout' => $checkout,
+            'plan' => $plan,
+            'addon' => $addon,
+        ]);
     }
 
     public function success(Request $request)

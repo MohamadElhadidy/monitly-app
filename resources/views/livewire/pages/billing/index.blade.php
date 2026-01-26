@@ -19,6 +19,21 @@ class extends Component {
     }
 }; ?>
 
+    <div class="space-y-6">
+        @if (session('error'))
+            <div class="rounded-xl border border-rose-200 bg-rose-50 shadow-sm p-6">
+                <div class="text-sm font-semibold text-rose-800">Error</div>
+                <div class="mt-1 text-sm text-rose-700">{{ session('error') }}</div>
+            </div>
+        @endif
+
+        @if (session('success'))
+            <div class="rounded-xl border border-emerald-200 bg-emerald-50 shadow-sm p-6">
+                <div class="text-sm font-semibold text-emerald-800">Success</div>
+                <div class="mt-1 text-sm text-emerald-700">{{ session('success') }}</div>
+            </div>
+        @endif
+
     <div class="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
         <div class="max-w-7xl mx-auto">
 
@@ -212,18 +227,19 @@ class extends Component {
                                             ✓ Current Plan
                                         </button>
                                     @else
-                                        @if ($planKey === 'free')
-                                            <a href="{{ route('billing.cancel') }}"
-                                               class="block w-full py-3 px-4 rounded-lg font-semibold text-white bg-gray-600 hover:bg-gray-700 transition text-center">
-                                                Downgrade to Free
-                                            </a>
+                                        @if ($planKey === 'free' && $currentBilling['plan'] !== 'free')
+                                            <form method="POST" action="{{ route('billing.cancel') }}" class="w-full">
+                                                @csrf
+                                                <button type="submit" class="w-full py-3 px-4 rounded-lg font-semibold text-white bg-gray-600 hover:bg-gray-700 transition text-center">
+                                                    Downgrade to Free
+                                                </button>
+                                            </form>
                                         @else
                                             <form method="POST" action="{{ route('billing.checkout') }}" class="w-full">
                                                 @csrf
                                                 <input type="hidden" name="plan" value="{{ $planKey }}">
-                                                <input type="hidden" name="scope" value="user">
-                                                <button type="submit" class="w-full py-3 px-4 rounded-lg font-semibold text-white {{ $planKey === 'team' ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700' : 'bg-purple-600 hover:bg-purple-700' }} transition">
-                                                    {{ $planKey === 'free' ? 'Use Free' : 'Start Trial' }}
+                                                <button type="submit" class="w-full py-3 px-4 rounded-lg font-semibold text-white {{ $planKey === 'team' ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700' : 'bg-purple-600 hover:bg-purple-700' }} transition shadow-lg hover:shadow-xl">
+                                                    {{ $planKey === 'free' ? 'Use Free' : 'Subscribe Now' }}
                                                 </button>
                                             </form>
                                         @endif

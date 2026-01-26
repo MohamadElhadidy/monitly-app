@@ -24,7 +24,13 @@ class PaddleService
             $priceIds = config("billing.plans.{$plan}.price_ids", []);
 
             if (empty($priceIds)) {
-                return null;
+                Log::warning('No price IDs configured for plan', ['plan' => $plan]);
+                // Return a development checkout URL that shows a message
+                return [
+                    'url' => '#',
+                    'id' => 'dev_checkout_' . uniqid(),
+                    'message' => 'Paddle price IDs not configured. Please set PADDLE_PRICE_IDS_PRO and PADDLE_PRICE_IDS_TEAM in your .env file.',
+                ];
             }
 
             $items = [
@@ -44,26 +50,60 @@ class PaddleService
                 }
             }
 
-            $payload = [
-                'items' => $items,
-                'customer' => [
-                    'email' => $billable->email,
-                ],
-                'custom_data' => [
-                    'user_id' => $billable->id,
-                ],
-                'return_url' => route('billing.success'),
-            ];
+            // Use Laravel Cashier Paddle if available
+            if (method_exists($billable, 'checkout')) {
+                try {
+                    $checkout = $billable->checkout($items, [
+                        'return_url' => route('billing.success'),
+                        'custom_data' => [
+                            'user_id' => $billable->id,
+                            'plan' => $plan,
+                            'addon' => $addon,
+                        ],
+                    ]);
 
-            // In production, call Paddle API
-            // For now, return mock response
+                    return [
+                        'url' => $checkout->url ?? '#',
+                        'id' => $checkout->id ?? 'checkout_' . uniqid(),
+                    ];
+                } catch (\Exception $e) {
+                    Log::error('Cashier checkout error', ['error' => $e->getMessage()]);
+                }
+            }
+
+            // Fallback: Direct Paddle API call
+            $apiKey = config('services.paddle.api_key') ?? env('PADDLE_API_KEY');
+            if ($apiKey) {
+                $response = Http::withHeaders([
+                    'Authorization' => 'Bearer ' . $apiKey,
+                ])->post('https://api.paddle.com/transactions', [
+                    'items' => $items,
+                    'customer_email' => $billable->email,
+                    'return_url' => route('billing.success'),
+                ]);
+
+                if ($response->successful()) {
+                    $data = $response->json();
+                    return [
+                        'url' => $data['checkout']['url'] ?? '#',
+                        'id' => $data['id'] ?? 'checkout_' . uniqid(),
+                    ];
+                }
+            }
+
+            // Development fallback
             return [
-                'url' => 'https://checkout.paddle.com/mock',
-                'id' => 'checkout_' . uniqid(),
+                'url' => '#',
+                'id' => 'dev_checkout_' . uniqid(),
+                'message' => 'Paddle API not configured. Set PADDLE_API_KEY in your .env file for production.',
             ];
         } catch (\Exception $e) {
             Log::error('Paddle checkout error', ['error' => $e->getMessage()]);
-            return null;
+            return [
+                'url' => '#',
+                'id' => 'error_checkout',
+                'message' => 'Error creating checkout: ' . $e->getMessage(),
+            ];
         }
     }
 
