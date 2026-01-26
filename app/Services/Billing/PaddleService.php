@@ -22,14 +22,33 @@ class PaddleService
     ): ?array {
         try {
             $priceIds = config("billing.plans.{$plan}.price_ids", []);
+            
+            // Debug: Log what we're getting
+            $envPriceId = env("PADDLE_PRICE_IDS_" . strtoupper($plan));
+            if (empty($priceIds) && !empty($envPriceId)) {
+                Log::info('Price ID found in env but not in config. Clear config cache with: php artisan config:clear', [
+                    'plan' => $plan,
+                    'env_value' => $envPriceId,
+                    'config_value' => $priceIds
+                ]);
+            }
 
             if (empty($priceIds) && $plan !== 'free') {
-                Log::warning('No price IDs configured for plan', ['plan' => $plan]);
+                Log::warning('No price IDs configured for plan', [
+                    'plan' => $plan,
+                    'env_check' => env("PADDLE_PRICE_IDS_" . strtoupper($plan)),
+                    'config_value' => $priceIds
+                ]);
                 // Return a development checkout URL that shows a message
+                $envValue = env("PADDLE_PRICE_IDS_" . strtoupper($plan));
+                $message = empty($envValue) 
+                    ? "Paddle price ID not found in .env for {$plan} plan. Please set PADDLE_PRICE_IDS_" . strtoupper($plan) . " in your .env file."
+                    : "Paddle price ID found in .env but config is cached. Run: php artisan config:clear";
+                
                 return [
                     'url' => '#',
                     'id' => 'dev_checkout_' . uniqid(),
-                    'message' => 'Paddle price IDs not configured. Please set PADDLE_PRICE_IDS_PRO and PADDLE_PRICE_IDS_TEAM in your .env file.',
+                    'message' => $message,
                 ];
             }
 

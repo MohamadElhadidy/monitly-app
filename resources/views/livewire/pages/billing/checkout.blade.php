@@ -32,33 +32,38 @@ class extends Component {
     }
 }; ?>
 
-    <div class="min-h-screen bg-gradient-to-br from-gray-50 to-white py-12 px-4 sm:px-6 lg:px-8">
-        <div class="max-w-2xl mx-auto">
-            <!-- Back Button -->
-            <a href="{{ route('billing.index') }}"
-               class="inline-flex items-center text-blue-600 hover:text-blue-700 mb-8">
-                <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
-                </svg>
-                Back to Plans
-            </a>
+<div class="min-h-screen bg-gradient-to-br from-gray-50 to-white py-12 px-4 sm:px-6 lg:px-8">
+    <div class="max-w-2xl mx-auto">
+        <!-- Back Button -->
+        <a href="{{ route('billing.index') }}"
+           class="inline-flex items-center text-blue-600 hover:text-blue-700 mb-8">
+            <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+            </svg>
+            Back to Plans
+        </a>
 
-            @if (session('error'))
-                <div class="mb-6 rounded-xl border border-rose-200 bg-rose-50 shadow-sm p-6">
-                    <div class="text-sm font-semibold text-rose-800">Error</div>
-                    <div class="mt-1 text-sm text-rose-700">{{ session('error') }}</div>
-                </div>
-            @endif
+        @if (session('error'))
+            <div class="mb-6 rounded-xl border border-rose-200 bg-rose-50 shadow-sm p-6">
+                <div class="text-sm font-semibold text-rose-800">Error</div>
+                <div class="mt-1 text-sm text-rose-700">{{ session('error') }}</div>
+            </div>
+        @endif
 
-            @if (($checkout['message'] ?? null))
-                <div class="mb-6 rounded-xl border border-yellow-200 bg-yellow-50 shadow-sm p-6">
-                    <div class="text-sm font-semibold text-yellow-800">Configuration Required</div>
-                    <div class="mt-1 text-sm text-yellow-700">{{ $checkout['message'] }}</div>
-                </div>
-            @endif
+        @if (($checkout['message'] ?? null))
+            <div class="mb-6 rounded-xl border border-yellow-200 bg-yellow-50 shadow-sm p-6">
+                <div class="text-sm font-semibold text-yellow-800">Configuration Required</div>
+                <div class="mt-1 text-sm text-yellow-700">{{ $checkout['message'] }}</div>
+                @if (str_contains($checkout['message'] ?? '', 'config is cached'))
+                    <div class="mt-2 text-xs text-yellow-600">
+                        <strong>Quick fix:</strong> Run <code class="bg-yellow-100 px-1 rounded">php artisan config:clear</code> in your terminal
+                    </div>
+                @endif
+            </div>
+        @endif
 
-            <!-- Card -->
-            <div class="bg-white rounded-2xl shadow-xl overflow-hidden">
+        <!-- Card -->
+        <div class="bg-white rounded-2xl shadow-xl overflow-hidden">
                 <!-- Header -->
                 <div class="bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-12 text-white">
                     <h1 class="text-3xl font-bold mb-2">Complete Payment</h1>
@@ -257,7 +262,7 @@ class extends Component {
                     <p class="text-sm text-gray-600 text-center">
                         By clicking "Complete Payment", you agree to our <a href="#" class="text-blue-600 hover:text-blue-700">Terms of Service</a> and <a href="#" class="text-blue-600 hover:text-blue-700">Privacy Policy</a>. Billing is managed by Paddle.
                     </p>
-                </div>
             </div>
         </div>
     </div>
+</div>
