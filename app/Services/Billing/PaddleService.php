@@ -23,39 +23,18 @@ class PaddleService
         try {
             $priceIds = config("billing.plans.{$plan}.price_ids", []);
             
-            // Debug: Log what we're getting
-            $envPriceId = env("PADDLE_PRICE_IDS_" . strtoupper($plan));
-            if (empty($priceIds) && !empty($envPriceId)) {
-                Log::info('Price ID found in env but not in config. Clear config cache with: php artisan config:clear', [
-                    'plan' => $plan,
-                    'env_value' => $envPriceId,
-                    'config_value' => $priceIds
-                ]);
-            }
-
             if (empty($priceIds) && $plan !== 'free') {
-                Log::warning('No price IDs configured for plan', [
-                    'plan' => $plan,
-                    'env_check' => env("PADDLE_PRICE_IDS_" . strtoupper($plan)),
-                    'config_value' => $priceIds
-                ]);
-                // Return a development checkout URL that shows a message
-                $envValue = env("PADDLE_PRICE_IDS_" . strtoupper($plan));
-                $message = empty($envValue) 
-                    ? "Paddle price ID not found in .env for {$plan} plan. Please set PADDLE_PRICE_IDS_" . strtoupper($plan) . " in your .env file."
-                    : "Paddle price ID found in .env but config is cached. Run: php artisan config:clear";
-                
+                Log::warning('No price IDs configured for plan', ['plan' => $plan]);
                 return [
                     'url' => '#',
                     'id' => 'dev_checkout_' . uniqid(),
-                    'message' => $message,
+                    'message' => "Paddle price ID not configured for {$plan} plan.",
                 ];
             }
 
-            // Build items array for Paddle
+            // Build items array
             $items = [];
             
-            // Add plan price if not free
             if ($plan !== 'free' && !empty($priceIds)) {
                 $items[] = [
                     'price_id' => $priceIds[0],
@@ -76,30 +55,39 @@ class PaddleService
                 }
             }
 
-            // If no items (free plan with no addons), return null
             if (empty($items)) {
                 return [
                     'url' => '#',
                     'id' => 'no_items',
-                    'message' => 'No items to checkout. Please select a plan or addon.',
+                    'message' => 'No items to checkout.',
                 ];
             }
 
-            // Use Laravel Cashier Paddle if available (only for single item)
-            // For multiple items, use direct Paddle API which handles items array properly
+            // CRITICAL FIX: Determine owner_type based on billable model
+            $ownerType = $billable instanceof \App\Models\Team ? 'team' : 'user';
+            
+            // Use Laravel Cashier if available (only for single item)
             if (method_exists($billable, 'checkout') && count($items) === 1) {
                 try {
-                    // Laravel Cashier Paddle checkout signature: checkout(string $priceId, int $quantity, array $options = [])
                     $priceId = $items[0]['price_id'];
                     $quantity = $items[0]['quantity'] ?? 1;
                     
+                    // CRITICAL FIX: Pass owner_type and owner_id in custom_data
                     $checkout = $billable->checkout($priceId, $quantity, [
                         'return_url' => route('billing.success'),
                         'custom_data' => [
-                            'user_id' => $billable->id,
+                            'owner_type' => $ownerType,  // ← THIS WAS MISSING!
+                            'owner_id' => $billable->id, // ← THIS WAS MISSING!
+                            'user_id' => $billable->id,  // Keep for backward compatibility
                             'plan' => $plan,
                             'addons' => $addons,
                         ],
+                    ]);
+
+                    Log::info('Cashier checkout created', [
+                        'owner_type' => $ownerType,
+                        'owner_id' => $billable->id,
+                        'plan' => $plan,
                     ]);
 
                     return [
@@ -107,33 +95,16 @@ class PaddleService
                         'id' => $checkout->id ?? 'checkout_' . uniqid(),
                     ];
                 } catch (\Exception $e) {
-                    Log::error('Cashier checkout error', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+                    Log::error('Cashier checkout error', [
+                        'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString()
+                    ]);
                     // Fall through to direct API call
                 }
             }
 
             // Fallback: Direct Paddle API call
-            // Try multiple ways to get the API key
-            $apiKey = config('services.paddle.api_key');
-            if (empty($apiKey)) {
-                $apiKey = env('PADDLE_API_KEY');
-            }
-            
-            // Debug logging
-            if (empty($apiKey)) {
-                $configValue = config('services.paddle.api_key');
-                $envValue = env('PADDLE_API_KEY');
-                Log::warning('Paddle API key not found', [
-                    'config_value' => $configValue ? 'set (length: ' . strlen($configValue) . ')' : 'null',
-                    'env_value' => $envValue ? 'set (length: ' . strlen($envValue) . ')' : 'null',
-                    'config_cached' => app()->configurationIsCached(),
-                ]);
-            } else {
-                Log::info('Paddle API key found', [
-                    'source' => config('services.paddle.api_key') ? 'config' : 'env',
-                    'key_length' => strlen($apiKey),
-                ]);
-            }
+            $apiKey = config('services.paddle.api_key') ?? env('PADDLE_API_KEY');
             
             if ($apiKey) {
                 try {
@@ -143,10 +114,23 @@ class PaddleService
                         'items' => $items,
                         'customer_email' => $billable->email ?? null,
                         'return_url' => route('billing.success'),
+                        'custom_data' => [
+                            'owner_type' => $ownerType,  // ← CRITICAL!
+                            'owner_id' => $billable->id, // ← CRITICAL!
+                            'plan' => $plan,
+                            'addons' => $addons,
+                        ],
                     ]);
 
                     if ($response->successful()) {
                         $data = $response->json();
+                        
+                        Log::info('Direct API checkout created', [
+                            'owner_type' => $ownerType,
+                            'owner_id' => $billable->id,
+                            'plan' => $plan,
+                        ]);
+                        
                         return [
                             'url' => $data['checkout']['url'] ?? '#',
                             'id' => $data['id'] ?? 'checkout_' . uniqid(),
@@ -162,25 +146,10 @@ class PaddleService
                 }
             }
 
-            // Development fallback
-            $configValue = config('services.paddle.api_key');
-            $envValue = env('PADDLE_API_KEY');
-            $message = 'Paddle API not configured. ';
-            
-            if (empty($envValue)) {
-                $message .= 'PADDLE_API_KEY is not set in your .env file.';
-            } elseif (empty($configValue) && app()->configurationIsCached()) {
-                $message .= 'PADDLE_API_KEY found in .env but config is cached. Run: php artisan config:clear';
-            } elseif (empty($configValue)) {
-                $message .= 'PADDLE_API_KEY found in .env but not in config. Check config/services.php.';
-            } else {
-                $message .= 'Unable to create checkout session. Check logs for details.';
-            }
-            
             return [
                 'url' => '#',
                 'id' => 'dev_checkout_' . uniqid(),
-                'message' => $message,
+                'message' => 'Paddle API not configured.',
             ];
         } catch (\Exception $e) {
             Log::error('Paddle checkout error', ['error' => $e->getMessage()]);
@@ -195,24 +164,17 @@ class PaddleService
     public function cancelSubscription(Model $billable): bool
     {
         try {
-            // If using Laravel Cashier Paddle, cancel the subscription properly
             if (method_exists($billable, 'subscription')) {
                 $subscription = $billable->subscription('default');
                 
                 if ($subscription && method_exists($subscription, 'active') && $subscription->active()) {
-                    // Cancel at period end (allows access until end of billing period)
                     if (method_exists($subscription, 'cancel')) {
                         $subscription->cancel();
                         Log::info('Subscription cancelled via Cashier', ['billable_id' => $billable->id]);
-                    } elseif (method_exists($subscription, 'cancelNow')) {
-                        // Immediate cancellation
-                        $subscription->cancelNow();
-                        Log::info('Subscription cancelled immediately via Cashier', ['billable_id' => $billable->id]);
                     }
                 }
             }
             
-            // Update local database
             $billable->update([
                 'billing_status' => 'canceled',
                 'billing_plan' => 'free',
@@ -220,16 +182,20 @@ class PaddleService
             
             return true;
         } catch (\Exception $e) {
-            Log::error('Cancel subscription error', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            Log::error('Cancel subscription error', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
             
-            // Still update local database even if Paddle cancellation fails
             try {
                 $billable->update([
                     'billing_status' => 'canceled',
                     'billing_plan' => 'free',
                 ]);
             } catch (\Exception $dbError) {
-                Log::error('Failed to update local billing status', ['error' => $dbError->getMessage()]);
+                Log::error('Failed to update local billing status', [
+                    'error' => $dbError->getMessage()
+                ]);
             }
             
             return false;
@@ -238,6 +204,18 @@ class PaddleService
 
     public function generatePortalUrl(Model $billable): ?string
     {
-        return "https://customer.paddle.com/billing/customers/{$billable->paddle_customer_id}";
+        // Simple redirect to Paddle's customer portal
+        if (empty($billable->paddle_customer_id)) {
+            return null;
+        }
+        
+        // If Cashier method exists, use it
+        if (method_exists($billable, 'billingPortalUrl')) {
+            return $billable->billingPortalUrl(route('billing.index'));
+        }
+        
+        // Otherwise, return generic Paddle portal URL
+        $environment = config('services.paddle.sandbox', false) ? 'sandbox-' : '';
+        return "https://{$environment}customer.paddle.com/subscriptions";
     }
 }

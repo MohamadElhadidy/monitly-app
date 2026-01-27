@@ -86,28 +86,32 @@ Route::middleware(['auth', 'verified'])->group(function () {
 });
 
 // ============================================================================
-// BILLING ROUTES
+// BILLING ROUTES - With Paddle Customer Portal Integration
 // ============================================================================
 
-// Route::middleware(['auth', 'verified'])
-//     ->prefix('app')
-//     ->name('billing.')
-//     ->group(function () {
-//         Route::post('/billing/checkout', [BillingController::class, 'checkout'])->name('checkout');
-//         Volt::route('/billing/checkout', 'pages.billing.checkout')->name('checkout.page');
-//         Volt::route('/billing/success', 'pages.billing.success')->name('success');
-//         Route::post('/billing/cancel', [BillingController::class, 'cancel'])->name('cancel');
-//     });
-    
-    
+
 Route::middleware(['auth', 'verified'])->prefix('billing')->name('billing.')->group(function () {
-    Volt::route('/', 'pages.billing.index')->name('checkout.index');
+    // Main billing dashboard
+    Volt::route('/', 'pages.billing.index')->name('index');
+    Volt::route('/checkout.index', 'pages.billing.index')->name('checkout.index'); // Alias for backward compatibility
+    
+    // Plan selection and checkout
+    Volt::route('/plans', 'pages.billing.plans')->name('plans');
+    Route::post('/checkout', [BillingController::class, 'checkout'])->name('checkout');
     Volt::route('/checkout', 'pages.billing.checkout')->name('checkout.page');
- Volt::route('/success', 'pages.billing.success')->name('success');
-  Volt::route('/plans', 'pages.billing.plans')->name('plans');
-   Volt::route('/invoices', 'pages.billing.invoices')->name('invoices');
-    Route::get('/invoices/{id}/download', [\App\Http\Controllers\Billing\BillingController::class, 'downloadInvoice'])->name('invoice.download');
-    Route::post('/cancel', [\App\Http\Controllers\Billing\BillingController::class, 'cancel'])->name('cancel');
+    Volt::route('/success', 'pages.billing.success')->name('success');
+    
+    // Invoice management
+    Volt::route('/invoices', 'pages.billing.invoices')->name('invoices');
+    Route::get('/invoices/{id}/download', [BillingController::class, 'downloadInvoice'])->name('invoice.download');
+    
+    // Subscription management - Redirects to Paddle Customer Portal
+    // This is the main route for managing subscriptions, payment methods, and billing preferences
+    Route::get('/manage', [BillingController::class, 'manageSubscription'])->name('manage');
+    
+    // Legacy routes - now redirect to customer portal for seamless experience
+    Route::post('/cancel', [BillingController::class, 'cancel'])->name('cancel');
+    Route::post('/payment-method/update', [BillingController::class, 'updatePaymentMethod'])->name('payment-method.update');
 });
 
 // ============================================================================
@@ -123,3 +127,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 // ============================================================================
 
 Route::post('/webhooks/paddle', PaddleWebhookController::class)->name('webhooks.paddle');
+
+
+
+
