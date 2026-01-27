@@ -28,7 +28,9 @@ Volt::route('/dashboard', 'pages.dashboard')->name('dashboard');
 
     Route::prefix('app')->group(function () {
         Volt::route('/monitors', 'pages.monitors.index')->name('monitors.index');
+        Volt::route('/monitors/create', 'pages.monitors.create')->name('monitors.create');
         Volt::route('/monitors/{monitor}', 'pages.monitors.show')->name('monitors.show');
+        Volt::route('/monitors/{monitor}/edit', 'pages.monitors.edit')->name('monitors.edit');
 
         Volt::route('/sla', 'pages.sla.overview')->name('sla.overview');
 

@@ -98,8 +98,8 @@ class PlanLimits
 
         $override = (int) ($user->addon_interval_override_minutes ?? 0);
         
-        // Faster checks addon: 5 minutes (upgrade from 10)
-        if ($override === 5 && in_array($plan, [self::PLAN_PRO, self::PLAN_TEAM], true)) {
+        // Faster checks addon: 5 minutes - now available for ALL plans
+        if ($override === 5) {
             return 5;
         }
 
@@ -142,7 +142,7 @@ class PlanLimits
             $packs = 0;
         }
 
-        return $base + ($packs * 3);
+        return $base + ($packs * 5); // +5 users per pack
     }
 
     public static function effectiveIntervalMinutesForTeam(Team $team): int
@@ -152,7 +152,7 @@ class PlanLimits
 
         $override = (int) ($team->addon_interval_override_minutes ?? 0);
         
-        // Faster checks addon: 5 minutes (upgrade from 10)
+        // Faster checks addon: 5 minutes - available for Team plan
         if ($override === 5 && $plan === self::PLAN_TEAM) {
             return 5;
         }
