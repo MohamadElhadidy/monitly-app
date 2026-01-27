@@ -89,15 +89,26 @@ Route::middleware(['auth', 'verified'])->group(function () {
 // BILLING ROUTES
 // ============================================================================
 
-Route::middleware(['auth', 'verified'])
-    ->prefix('app')
-    ->name('billing.')
-    ->group(function () {
-        Route::post('/billing/checkout', [BillingController::class, 'checkout'])->name('checkout');
-        Volt::route('/billing/checkout', 'pages.billing.checkout')->name('checkout.page');
-        Volt::route('/billing/success', 'pages.billing.success')->name('success');
-        Route::post('/billing/cancel', [BillingController::class, 'cancel'])->name('cancel');
-    });
+// Route::middleware(['auth', 'verified'])
+//     ->prefix('app')
+//     ->name('billing.')
+//     ->group(function () {
+//         Route::post('/billing/checkout', [BillingController::class, 'checkout'])->name('checkout');
+//         Volt::route('/billing/checkout', 'pages.billing.checkout')->name('checkout.page');
+//         Volt::route('/billing/success', 'pages.billing.success')->name('success');
+//         Route::post('/billing/cancel', [BillingController::class, 'cancel'])->name('cancel');
+//     });
+    
+    
+Route::middleware(['auth', 'verified'])->prefix('billing')->name('billing.')->group(function () {
+    Volt::route('/', 'pages.billing.index')->name('checkout.index');
+    Volt::route('/checkout', 'pages.billing.checkout')->name('checkout.page');
+ Volt::route('/success', 'pages.billing.success')->name('success');
+  Volt::route('/plans', 'pages.billing.plans')->name('plans');
+   Volt::route('/invoices', 'pages.billing.invoices')->name('invoices');
+    Route::get('/invoices/{id}/download', [\App\Http\Controllers\Billing\BillingController::class, 'downloadInvoice'])->name('invoice.download');
+    Route::post('/cancel', [\App\Http\Controllers\Billing\BillingController::class, 'cancel'])->name('cancel');
+});
 
 // ============================================================================
 // USER SETTINGS
