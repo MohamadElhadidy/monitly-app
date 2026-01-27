@@ -19,7 +19,6 @@
     <!-- Scripts -->
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
-    @paddleJS
 </head>
 <body class="h-full font-sans antialiased bg-gray-50 text-gray-900">
     @php
@@ -225,7 +224,7 @@
     </div>
 
     @livewireScripts
-    
+    @stack('scripts')
     <x-banner />
 </body>
 </html>

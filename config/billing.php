@@ -3,6 +3,7 @@
 return [
     'paddle_webhook_secret' => env('PADDLE_WEBHOOK_SECRET'),
     'paddle_customer_token' => env('PADDLE_CUSTOMER_TOKEN'),
+    'sandbox' => env('PADDLE_SANDBOX'),
     'grace_days' => (int) env('BILLING_GRACE_DAYS', 7),
 
     'plans' => [
@@ -13,6 +14,8 @@ return [
             'users' => 1,
             'check_interval' => '15-minute',
             'history_days' => 7,
+            'popular' => false,
+            'description' => 'Perfect for trying out Monitly',
             'features' => [
                 'email_alerts' => true,
                 'slack_integration' => false,
@@ -20,6 +23,14 @@ return [
                 'team_invitations' => false,
                 'add_ons' => true,
                 'full_history' => false,
+                'priority_support' => false,
+                'sla_reports' => true,
+            ],
+            'feature_list' => [
+                '1 monitor',
+                '15-minute checks',
+                'Email alerts',
+                '7 days history',
             ],
         ],
         'pro' => [
@@ -30,6 +41,8 @@ return [
             'users' => 1,
             'check_interval' => '10-minute',
             'history_days' => null, // Full history
+            'popular' => true,
+            'description' => 'For serious monitoring',
             'features' => [
                 'email_alerts' => true,
                 'slack_integration' => false,
@@ -37,6 +50,16 @@ return [
                 'team_invitations' => false,
                 'add_ons' => true,
                 'full_history' => true,
+                'priority_support' => false,
+                'sla_reports' => true,
+            ],
+            'feature_list' => [
+                '5 monitors',
+                '10-minute checks',
+                'Email alerts',
+                'Unlimited history',
+                'Add-ons available',
+                'SLA reports',
             ],
         ],
         'team' => [
@@ -47,6 +70,9 @@ return [
             'users' => 5,
             'check_interval' => '10-minute',
             'history_days' => null, // Full history
+            'popular' => false,
+            'best_value' => true,
+            'description' => 'For teams & businesses',
             'features' => [
                 'email_alerts' => true,
                 'slack_integration' => true,
@@ -54,6 +80,17 @@ return [
                 'team_invitations' => true,
                 'add_ons' => true,
                 'full_history' => true,
+                'priority_support' => true,
+                'sla_reports' => true,
+            ],
+            'feature_list' => [
+                '20 monitors',
+                '10-minute checks',
+                '5 team members',
+                'Slack & Webhooks',
+                'Unlimited history',
+                'SLA reports',
+                'Priority support',
             ],
         ],
     ],
