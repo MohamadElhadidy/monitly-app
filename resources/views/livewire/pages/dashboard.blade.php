@@ -1,14 +1,12 @@
 <?php
-
 use Livewire\Volt\Component;
 use App\Services\Billing\PlanLimits;
 use App\Models\Monitor;
 use Illuminate\Support\Facades\DB;
-
 use Livewire\Attributes\Layout;
 
 new
-#[Layout('layouts.app')] 
+#[Layout('layouts.app')]
 class extends Component {
     public function plan()
     {
@@ -21,7 +19,6 @@ class extends Component {
             'monitors' => PlanLimits::baseMonitorLimit($planName),
             'users' => PlanLimits::baseSeatLimit($planName),
             'check_interval' => PlanLimits::baseIntervalMinutes($planName),
-            'history_days' => PlanLimits::historyDays($planName),
             'isSubscribed' => $user->isSubscribed(),
             'isInGrace' => $user->isInGrace(),
         ];
@@ -30,18 +27,11 @@ class extends Component {
     public function monitorStats()
     {
         $user = auth()->user();
+        $teamIds = $user->teams()->select('teams.id')->pluck('teams.id')->toArray();
 
-        // Get team IDs safely
-        $teamIds = $user->teams()
-            ->select('teams.id')
-            ->pluck('teams.id')
-            ->toArray();
-
-        // Get all monitors (user's personal + team monitors)
         $monitors = Monitor::query()
             ->where(function ($q) use ($user, $teamIds) {
                 $q->where('monitors.user_id', $user->id);
-
                 if (!empty($teamIds)) {
                     $q->orWhereIn('monitors.team_id', $teamIds);
                 }
@@ -53,28 +43,9 @@ class extends Component {
         $downMonitors = $monitors->where('last_status', 'down')->count();
         $pausedMonitors = $monitors->where('paused', true)->count();
 
-        // Calculate SLA using the incidents table (actual downtime)
-        $monitorIds = $monitors->pluck('id')->toArray();
-
-        // Get total downtime from incidents in last 30 days
-        $totalDowntimeSeconds = 0;
-        if (!empty($monitorIds)) {
-            $totalDowntimeSeconds = DB::table('incidents')
-                ->whereIn('incidents.monitor_id', $monitorIds)
-                ->where('incidents.started_at', '>=', now()->subDays(30))
-                ->whereNotNull('incidents.downtime_seconds')
-                ->sum('incidents.downtime_seconds');
-        }
-
-        $totalDowntimeHours = round($totalDowntimeSeconds / 3600, 2);
-
-        // Calculate SLA percentage (using stored SLA columns from monitors)
         $avgSla = 0;
         if ($totalMonitors > 0) {
-            $avgSla = round(
-                $monitors->avg('sla_uptime_pct_30d') ?? 99.5,
-                2
-            );
+            $avgSla = round($monitors->avg('sla_uptime_pct_30d') ?? 99.5, 2);
         }
 
         return [
@@ -83,27 +54,18 @@ class extends Component {
             'down' => $downMonitors,
             'paused' => $pausedMonitors,
             'sla' => $avgSla,
-            'downtime_hours' => $totalDowntimeHours,
-            'incident_count' => $totalMonitors > 0 ? $monitors->sum('sla_incident_count_30d') ?? 0 : 0,
         ];
     }
 
-    public function recentAlerts()
+    public function recentIncidents()
     {
         $user = auth()->user();
+        $teamIds = $user->teams()->select('teams.id')->pluck('teams.id')->toArray();
 
-        // Get team IDs safely
-        $teamIds = $user->teams()
-            ->select('teams.id')
-            ->pluck('teams.id')
-            ->toArray();
-
-        // Get recent incidents (downtime events)
-        $incidents = DB::table('incidents')
+        return DB::table('incidents')
             ->join('monitors', 'incidents.monitor_id', '=', 'monitors.id')
             ->where(function ($q) use ($user, $teamIds) {
                 $q->where('monitors.user_id', $user->id);
-
                 if (!empty($teamIds)) {
                     $q->orWhereIn('monitors.team_id', $teamIds);
                 }
@@ -113,269 +75,186 @@ class extends Component {
                 'incidents.monitor_id',
                 'incidents.started_at',
                 'incidents.recovered_at',
-                'monitors.name'
+                'monitors.name',
+                'monitors.url'
             )
             ->orderBy('incidents.started_at', 'desc')
             ->limit(5)
             ->get();
-
-        return $incidents;
     }
 
     public function topDownMonitors()
     {
         $user = auth()->user();
-
-        // Get team IDs safely
-        $teamIds = $user->teams()
-            ->select('teams.id')
-            ->pluck('teams.id')
-            ->toArray();
+        $teamIds = $user->teams()->select('teams.id')->pluck('teams.id')->toArray();
 
         return Monitor::query()
             ->where(function ($q) use ($user, $teamIds) {
                 $q->where('monitors.user_id', $user->id);
-
                 if (!empty($teamIds)) {
                     $q->orWhereIn('monitors.team_id', $teamIds);
                 }
             })
             ->where('monitors.last_status', 'down')
             ->orderBy('monitors.updated_at', 'desc')
-            ->limit(5)
+            ->limit(3)
             ->get();
     }
 }; ?>
-<div class="min-h-screen bg-gray-50">
-        <!-- Header Section -->
-        <div class="bg-white border-b border-gray-200">
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-                <h1 class="text-4xl font-bold text-gray-900 mb-2">Dashboard</h1>
-                <p class="text-lg text-gray-600">Welcome back! Here's your monitoring overview.</p>
+
+<div>
+    <x-slot name="breadcrumbs">
+        <h2 class="text-2xl font-bold leading-7 text-gray-900">Dashboard</h2>
+    </x-slot>
+
+    @php
+        $plan = $this->plan();
+        $stats = $this->monitorStats();
+        $downMonitors = $this->topDownMonitors();
+        $recentIncidents = $this->recentIncidents();
+    @endphp
+
+    <!-- Main content -->
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+        
+        <!-- Grace Period Alert -->
+        @if ($plan['isInGrace'])
+        <x-ui.alert type="warning" :dismissible="true" class="mb-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-sm font-medium">Payment Issue</h3>
+                    <p class="mt-1 text-sm">Your subscription payment failed. Please update your payment method to avoid service interruption.</p>
+                </div>
+                <x-ui.button href="{{ route('billing.index') }}" variant="secondary" size="sm">
+                    Update Payment
+                </x-ui.button>
             </div>
+        </x-ui.alert>
+        @endif
+
+        <!-- Stats Grid -->
+        <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+            <!-- Total Monitors -->
+            <x-ui.stat-card 
+                title="Total Monitors" 
+                :value="$stats['total'] . ' / ' . $plan['monitors']"
+                color="gray"
+            >
+                <x-slot:icon>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 01-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0115 18.257V17.25m6-12V15a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 15V5.25m18 0A2.25 2.25 0 0018.75 3H5.25A2.25 2.25 0 003 5.25m18 0V12a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 12V5.25" />
+                </x-slot:icon>
+            </x-ui.stat-card>
+
+            <!-- Online -->
+            <x-ui.stat-card 
+                title="Online" 
+                :value="$stats['up']"
+                color="emerald"
+            >
+                <x-slot:icon>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </x-slot:icon>
+            </x-ui.stat-card>
+
+            <!-- Offline -->
+            <x-ui.stat-card 
+                title="Offline" 
+                :value="$stats['down']"
+                color="red"
+            >
+                <x-slot:icon>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </x-slot:icon>
+            </x-ui.stat-card>
+
+            <!-- 30d Uptime -->
+            <x-ui.stat-card 
+                title="30d Uptime" 
+                :value="$stats['sla'] . '%'"
+                color="blue"
+            >
+                <x-slot:icon>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                </x-slot:icon>
+            </x-ui.stat-card>
         </div>
 
-        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-            @php
-                $plan = $this->plan();
-            @endphp
-
-            <!-- Grace Period Alert -->
-            @if ($plan['isInGrace'])
-                <div class="mb-6 bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded-lg">
-                    <div class="flex">
+        <!-- Down Monitors Alert -->
+        @if ($downMonitors->count() > 0)
+        <x-ui.card class="mb-8">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-lg font-semibold text-gray-900">Monitors Down</h2>
+                <x-ui.button href="{{ route('monitors.index') }}" variant="ghost" size="sm">
+                    View all →
+                </x-ui.button>
+            </div>
+            <div class="space-y-3">
+                @foreach ($downMonitors as $monitor)
+                <div class="flex items-center justify-between p-4 rounded-lg bg-red-50 border border-red-200">
+                    <div class="flex items-center gap-4 min-w-0 flex-1">
                         <div class="flex-shrink-0">
-                            <svg class="h-5 w-5 text-yellow-400" viewBox="0 0 20 20" fill="currentColor">
-                                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
-                            </svg>
+                            <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-red-100">
+                                <svg class="h-5 w-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                                </svg>
+                            </div>
                         </div>
-                        <div class="ml-3">
-                            <p class="text-sm text-yellow-700">
-                                <strong>Payment Issue:</strong> Your subscription is in grace period. Please update your payment method.
+                        <div class="min-w-0">
+                            <p class="text-sm font-semibold text-gray-900 truncate">{{ $monitor->name }}</p>
+                            <p class="text-sm text-gray-600 truncate">{{ $monitor->url }}</p>
+                        </div>
+                    </div>
+                    <x-ui.button href="{{ route('monitors.show', $monitor->id) }}" variant="secondary" size="sm">
+                        View details
+                    </x-ui.button>
+                </div>
+                @endforeach
+            </div>
+        </x-ui.card>
+        @endif
+
+        <!-- Recent Activity -->
+        <x-ui.card>
+            <h2 class="text-lg font-semibold text-gray-900 mb-4">Recent Activity</h2>
+            @if ($recentIncidents->count() > 0)
+            <div class="space-y-3">
+                @foreach ($recentIncidents as $incident)
+                <div class="flex items-center justify-between py-3 border-b border-gray-100 last:border-0">
+                    <div class="flex items-center gap-4 min-w-0 flex-1">
+                        <div class="flex-shrink-0">
+                            @if ($incident->recovered_at)
+                            <div class="h-2 w-2 rounded-full bg-emerald-500"></div>
+                            @else
+                            <div class="h-2 w-2 rounded-full bg-red-500 animate-pulse"></div>
+                            @endif
+                        </div>
+                        <div class="min-w-0 flex-1">
+                            <p class="text-sm font-medium text-gray-900 truncate">{{ $incident->name }}</p>
+                            <p class="text-sm text-gray-500">
+                                <span>{{ \Carbon\Carbon::parse($incident->started_at)->diffForHumans() }}</span>
+                                @if ($incident->recovered_at)
+                                <span class="mx-1">•</span>
+                                <span class="text-emerald-600">Recovered</span>
+                                @else
+                                <span class="mx-1">•</span>
+                                <span class="text-red-600">Still down</span>
+                                @endif
                             </p>
                         </div>
                     </div>
+                    <x-ui.badge :variant="$incident->recovered_at ? 'success' : 'danger'">
+                        {{ $incident->recovered_at ? 'Resolved' : 'Active' }}
+                    </x-ui.badge>
                 </div>
+                @endforeach
+            </div>
+            @else
+            <x-ui.empty-state 
+                icon="success"
+                title="No incidents"
+                description="All systems are running smoothly!"
+            />
             @endif
-
-            <!-- Plan Status Card -->
-            <div class="bg-white rounded-xl shadow-lg p-8 mb-8 border-l-4 border-blue-600">
-                <div class="flex items-center justify-between mb-6">
-                    <div>
-                        <h2 class="text-2xl font-bold text-gray-900">Your Plan</h2>
-                        <p class="text-gray-600 mt-1">{{ $plan['status'] === 'active' ? '✓ Plan active and running' : 'Upgrade to unlock premium features' }}</p>
-                    </div>
-                    <span class="inline-block bg-gradient-to-r from-blue-600 to-indigo-600 text-white px-6 py-2 rounded-full font-semibold capitalize text-lg">
-                        {{ $plan['name'] }}
-                    </span>
-                </div>
-
-                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                    <div class="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-4">
-                        <p class="text-gray-600 text-sm font-medium">Monitors</p>
-                        <p class="text-3xl font-bold text-blue-600 mt-2">{{ $plan['monitors'] }}</p>
-                    </div>
-
-                    <div class="bg-gradient-to-br from-purple-50 to-purple-100 rounded-lg p-4">
-                        <p class="text-gray-600 text-sm font-medium">Team Members</p>
-                        <p class="text-3xl font-bold text-purple-600 mt-2">{{ $plan['users'] }}</p>
-                    </div>
-
-                    <div class="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-lg p-4">
-                        <p class="text-gray-600 text-sm font-medium">Check Interval</p>
-                        <p class="text-3xl font-bold text-emerald-600 mt-2">{{ $plan['check_interval'] }}min</p>
-                    </div>
-
-                    <div class="bg-gradient-to-br from-orange-50 to-orange-100 rounded-lg p-4">
-                        <p class="text-gray-600 text-sm font-medium">History</p>
-                        <p class="text-3xl font-bold text-orange-600 mt-2">
-                            @if ($plan['history_days'] > 1000)
-                                Unlimited
-                            @else
-                                {{ $plan['history_days'] }}d
-                            @endif
-                        </p>
-                    </div>
-                </div>
-
-                <a href="{{ route('billing.index') }}" class="inline-block bg-black hover:bg-gray-900 text-white font-semibold py-3 px-8 rounded-lg transition-all">
-                    Manage Billing →
-                </a>
-            </div>
-
-            <!-- Monitoring Stats -->
-            @php
-                $stats = $this->monitorStats();
-            @endphp
-
-            <h3 class="text-2xl font-bold text-gray-900 mb-6">Monitoring Overview</h3>
-
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 mb-8">
-                <!-- Total Monitors -->
-                <div class="bg-white rounded-lg shadow p-6 border-t-4 border-blue-600 hover:shadow-lg transition">
-                    <p class="text-gray-600 text-sm font-medium">Total</p>
-                    <p class="text-4xl font-bold text-gray-900 mt-2">{{ $stats['total'] }}</p>
-                </div>
-
-                <!-- Up -->
-                <div class="bg-white rounded-lg shadow p-6 border-t-4 border-green-600 hover:shadow-lg transition">
-                    <p class="text-gray-600 text-sm font-medium">Up</p>
-                    <p class="text-4xl font-bold text-green-600 mt-2">{{ $stats['up'] }}</p>
-                </div>
-
-                <!-- Down -->
-                <div class="bg-white rounded-lg shadow p-6 border-t-4 border-red-600 hover:shadow-lg transition">
-                    <p class="text-gray-600 text-sm font-medium">Down</p>
-                    <p class="text-4xl font-bold text-red-600 mt-2">{{ $stats['down'] }}</p>
-                </div>
-
-                <!-- Paused -->
-                <div class="bg-white rounded-lg shadow p-6 border-t-4 border-yellow-600 hover:shadow-lg transition">
-                    <p class="text-gray-600 text-sm font-medium">Paused</p>
-                    <p class="text-4xl font-bold text-yellow-600 mt-2">{{ $stats['paused'] }}</p>
-                </div>
-
-                <!-- SLA -->
-                <div class="bg-white rounded-lg shadow p-6 border-t-4 border-purple-600 hover:shadow-lg transition">
-                    <p class="text-gray-600 text-sm font-medium">SLA (30d)</p>
-                    <p class="text-4xl font-bold text-purple-600 mt-2">{{ $stats['sla'] }}%</p>
-                </div>
-
-                <!-- Downtime -->
-                <div class="bg-white rounded-lg shadow p-6 border-t-4 border-indigo-600 hover:shadow-lg transition">
-                    <p class="text-gray-600 text-sm font-medium">Downtime</p>
-                    <p class="text-4xl font-bold text-indigo-600 mt-2">{{ $stats['downtime_hours'] }}h</p>
-                </div>
-            </div>
-
-            <!-- Down Monitors Alert -->
-            @php
-                $downMonitors = $this->topDownMonitors();
-            @endphp
-
-            @if ($downMonitors->count() > 0)
-                <h3 class="text-2xl font-bold text-gray-900 mb-6">⚠️ Monitors Down</h3>
-
-                <div class="grid gap-4 mb-8">
-                    @foreach ($downMonitors as $monitor)
-                        <div class="bg-gradient-to-r from-red-50 to-orange-50 rounded-lg shadow p-6 border-l-4 border-red-600">
-                            <div class="flex items-center justify-between">
-                                <div>
-                                    <h4 class="text-lg font-semibold text-gray-900">{{ $monitor->name }}</h4>
-                                    <p class="text-sm text-gray-600 mt-1">{{ $monitor->url }}</p>
-                                </div>
-                                <a href="{{ route('monitors.show', $monitor->id) }}" class="bg-black hover:bg-gray-900 text-white font-semibold py-2 px-6 rounded-lg transition">
-                                    View
-                                </a>
-                            </div>
-                        </div>
-                    @endforeach
-                </div>
-            @endif
-
-            <!-- Quick Actions -->
-            <h3 class="text-2xl font-bold text-gray-900 mb-6">Quick Actions</h3>
-
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-                <!-- Create Monitor -->
-                <a href="{{ route('monitors.index') }}" class="bg-white rounded-lg shadow p-8 hover:shadow-lg transition transform hover:scale-105 cursor-pointer group">
-                    <div class="bg-blue-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:bg-blue-600 transition">
-                        <svg class="h-6 w-6 text-blue-600 group-hover:text-white transition" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <line x1="12" y1="5" x2="12" y2="19"></line>
-                            <line x1="5" y1="12" x2="19" y2="12"></line>
-                        </svg>
-                    </div>
-                    <h4 class="text-lg font-bold text-gray-900 mb-2">Create Monitor</h4>
-                    <p class="text-gray-600 text-sm">Start monitoring a new service</p>
-                </a>
-
-                <!-- View Reports -->
-                <a href="{{ route('sla.overview') }}" class="bg-white rounded-lg shadow p-8 hover:shadow-lg transition transform hover:scale-105 cursor-pointer group">
-                    <div class="bg-purple-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:bg-purple-600 transition">
-                        <svg class="h-6 w-6 text-purple-600 group-hover:text-white transition" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <line x1="12" y1="5" x2="12" y2="19"></line>
-                            <polyline points="19 12 16 9 16 15"></polyline>
-                            <polyline points="5 12 8 9 8 15"></polyline>
-                        </svg>
-                    </div>
-                    <h4 class="text-lg font-bold text-gray-900 mb-2">View Reports</h4>
-                    <p class="text-gray-600 text-sm">Check SLA and performance</p>
-                </a>
-
-                <!-- Manage Billing -->
-                <a href="{{ route('billing.index') }}" class="bg-white rounded-lg shadow p-8 hover:shadow-lg transition transform hover:scale-105 cursor-pointer group">
-                    <div class="bg-green-100 w-12 h-12 rounded-lg flex items-center justify-center mb-4 group-hover:bg-green-600 transition">
-                        <svg class="h-6 w-6 text-green-600 group-hover:text-white transition" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect>
-                            <line x1="1" y1="10" x2="23" y2="10"></line>
-                        </svg>
-                    </div>
-                    <h4 class="text-lg font-bold text-gray-900 mb-2">Manage Billing</h4>
-                    <p class="text-gray-600 text-sm">Upgrade plan & subscription</p>
-                </a>
-            </div>
-
-            <!-- Recent Incidents -->
-            @php
-                $recentAlerts = $this->recentAlerts();
-            @endphp
-
-            <h3 class="text-2xl font-bold text-gray-900 mb-6">Recent Activity</h3>
-
-            <div class="bg-white rounded-lg shadow overflow-hidden">
-                <div class="px-6 py-4 border-b border-gray-200">
-                    <h4 class="font-semibold text-gray-900">Latest Incidents (Last 30 days)</h4>
-                </div>
-
-                @if ($recentAlerts->count() > 0)
-                    <div class="divide-y divide-gray-200">
-                        @foreach ($recentAlerts as $alert)
-                            <div class="px-6 py-4 hover:bg-gray-50 transition cursor-pointer" onclick="window.location='{{ route('monitors.show', $alert->monitor_id) }}'">
-                                <div class="flex items-center justify-between">
-                                    <div>
-                                        <p class="font-semibold text-gray-900">{{ $alert->name }}</p>
-                                        <p class="text-sm text-gray-600 mt-1">
-                                            Started: {{ \Carbon\Carbon::parse($alert->started_at)->diffForHumans() }}
-                                            @if ($alert->recovered_at)
-                                                • Recovered: {{ \Carbon\Carbon::parse($alert->recovered_at)->diffForHumans() }}
-                                            @else
-                                                • <span class="text-red-600 font-semibold">Still Down</span>
-                                            @endif
-                                        </p>
-                                    </div>
-                                    <span class="inline-block px-3 py-1 rounded-full text-xs font-semibold {{ $alert->recovered_at ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800' }}">
-                                        {{ $alert->recovered_at ? 'Recovered' : 'Active' }}
-                                    </span>
-                                </div>
-                            </div>
-                        @endforeach
-                    </div>
-                @else
-                    <div class="px-6 py-12 text-center">
-                        <p class="text-gray-600 font-medium">No incidents</p>
-                        <p class="text-gray-500 text-sm mt-1">All systems are running smoothly!</p>
-                    </div>
-                @endif
-            </div>
-        </div>
+        </x-ui.card>
     </div>
+</div>

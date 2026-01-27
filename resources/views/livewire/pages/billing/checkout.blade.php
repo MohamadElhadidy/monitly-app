@@ -1,342 +1,102 @@
 <?php
-
 use Livewire\Volt\Component;
-
 use Livewire\Attributes\Layout;
 
 new
-#[Layout('layouts.app')] 
+#[Layout('layouts.app')]
 class extends Component {
-    public $plan = 'pro';
-    public $addons = [];
-    public $plans;
-    public $addonsConfig;
-    public $checkout;
-
-    public function mount()
-    {
-        // Get data from request
-        $request = request();
-        $this->plan = $request->get('plan', 'pro');
-        $addonsFromRequest = $request->get('addons', []);
-        
-        // Handle backward compatibility with single addon
-        if (empty($addonsFromRequest) && $request->has('addon')) {
-            $addonsFromRequest = [$request->get('addon')];
-        }
-        
-        $this->addons = is_array($addonsFromRequest) ? array_filter($addonsFromRequest) : [];
-        $this->plans = config('billing.plans', []);
-        $this->addonsConfig = config('billing.addons', []);
-        
-        // Get checkout from session or create new one
-        $this->checkout = session('checkout');
-        
-        if (!$this->checkout) {
-            // Create checkout session if it doesn't exist
-            $user = auth()->user();
-            $paddleService = app(\App\Services\Billing\PaddleService::class);
-            
-            $this->checkout = $paddleService->createCheckoutSession(
-                billable: $user,
-                plan: $this->plan,
-                addons: $this->addons,
-            );
-            
-            if (!$this->checkout || ($this->checkout['id'] ?? null) === 'no_items') {
-                session()->flash('error', $this->checkout['message'] ?? 'Failed to create checkout. Please ensure Paddle price IDs are configured.');
-                return $this->redirect(route('billing.index'), navigate: false);
-            }
-            
-            // Store in session
-            session(['checkout' => $this->checkout]);
-        }
-    }
+    // Checkout logic
 }; ?>
 
-<div class="min-h-screen bg-gradient-to-br from-gray-50 to-white py-12 px-4 sm:px-6 lg:px-8">
-    <div class="max-w-2xl mx-auto">
-        <!-- Back Button -->
-        <a href="{{ route('billing.index') }}"
-           class="inline-flex items-center text-blue-600 hover:text-blue-700 mb-8">
-            <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
-            </svg>
-            Back to Plans
-        </a>
+<div>
+    <x-slot name="breadcrumbs">
+        <h2 class="text-2xl font-bold text-gray-900">Upgrade Your Plan</h2>
+    </x-slot>
 
-        @if (session('error'))
-            <div class="mb-6 rounded-xl border border-rose-200 bg-rose-50 shadow-sm p-6">
-                <div class="text-sm font-semibold text-rose-800">Error</div>
-                <div class="mt-1 text-sm text-rose-700">{{ session('error') }}</div>
-            </div>
-        @endif
-
-        @if (($checkout['message'] ?? null))
-            <div class="mb-6 rounded-xl border border-yellow-200 bg-yellow-50 shadow-sm p-6">
-                <div class="text-sm font-semibold text-yellow-800">Configuration Required</div>
-                <div class="mt-1 text-sm text-yellow-700">{{ $checkout['message'] }}</div>
-                @if (str_contains($checkout['message'] ?? '', 'config is cached'))
-                    <div class="mt-2 text-xs text-yellow-600">
-                        <strong>Quick fix:</strong> Run <code class="bg-yellow-100 px-1 rounded">php artisan config:clear</code> in your terminal
-                    </div>
-                @endif
-            </div>
-        @endif
-
-        <!-- Card -->
-        <div class="bg-white rounded-2xl shadow-xl overflow-hidden">
-                <!-- Header -->
-                <div class="bg-gradient-to-r from-blue-600 to-indigo-600 px-8 py-12 text-white">
-                    <h1 class="text-3xl font-bold mb-2">Complete Payment</h1>
-                    <p class="text-blue-100">Secure checkout powered by Paddle</p>
+    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <!-- Pro Plan -->
+            <x-ui.card>
+                <h3 class="text-2xl font-bold text-gray-900 mb-2">Pro Plan</h3>
+                <div class="mb-4">
+                    <span class="text-4xl font-bold text-gray-900">$9</span>
+                    <span class="text-gray-600">/month</span>
                 </div>
+                
+                <ul class="space-y-3 mb-6">
+                    <li class="flex items-center gap-2">
+                        <svg class="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span>5 monitors</span>
+                    </li>
+                    <li class="flex items-center gap-2">
+                        <svg class="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span>10-minute checks</span>
+                    </li>
+                    <li class="flex items-center gap-2">
+                        <svg class="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span>Email alerts</span>
+                    </li>
+                </ul>
 
-                <!-- Body -->
-                <div class="p-8">
-                    <!-- Plan Summary -->
-                    <div class="mb-8 pb-8 border-b border-gray-200">
-                        <h2 class="text-lg font-semibold text-gray-900 mb-6">Order Summary</h2>
+                <x-ui.button class="w-full paddle-checkout" data-price-id="pro_price_id" variant="primary">
+                    Subscribe Now
+                </x-ui.button>
+            </x-ui.card>
 
-                        @php
-                            $planData = $plans[$plan] ?? [];
-                            $selectedAddons = [];
-                            $totalAddonPrice = 0;
-                            
-                            foreach ($addons as $addonKey) {
-                                if (!empty($addonKey) && isset($addonsConfig[$addonKey])) {
-                                    $selectedAddons[] = $addonsConfig[$addonKey];
-                                    $totalAddonPrice += $addonsConfig[$addonKey]['price'] ?? 0;
-                                }
-                            }
-                        @endphp
-
-                        <!-- Plan Item -->
-                        @if ($plan !== 'free')
-                            <div class="flex justify-between items-center mb-4">
-                                <div>
-                                    <p class="font-semibold text-gray-900">{{ $planData['name'] ?? 'Plan' }}</p>
-                                    <p class="text-sm text-gray-600">{{ ucfirst($planData['billing_cycle'] ?? 'monthly') }} billing</p>
-                                </div>
-                                <p class="text-lg font-bold text-gray-900">${{ $planData['price'] ?? 0 }}/mo</p>
-                            </div>
-                        @else
-                            <div class="flex justify-between items-center mb-4">
-                                <div>
-                                    <p class="font-semibold text-gray-900">{{ $planData['name'] ?? 'Free Plan' }}</p>
-                                    <p class="text-sm text-gray-600">Base plan</p>
-                                </div>
-                                <p class="text-lg font-bold text-gray-900">Free</p>
-                            </div>
-                        @endif
-
-                        <!-- Addon Items -->
-                        @foreach ($selectedAddons as $addonData)
-                            <div class="flex justify-between items-center mb-4">
-                                <div>
-                                    <p class="font-semibold text-gray-900">{{ $addonData['name'] ?? 'Add-on' }}</p>
-                                    <p class="text-sm text-gray-600">
-                                        @if (isset($addonData['description']))
-                                            {{ $addonData['description'] }}
-                                        @elseif (isset($addonData['pack_size']))
-                                            +{{ $addonData['pack_size'] }} {{ str_contains($addonData['name'], 'Monitor') ? 'monitors' : 'team members' }}
-                                        @endif
-                                    </p>
-                                </div>
-                                <p class="text-lg font-bold text-gray-900">${{ $addonData['price'] ?? 0 }}/mo</p>
-                            </div>
-                        @endforeach
-
-                        <!-- Total -->
-                        <div class="flex justify-between items-center pt-4 border-t border-gray-200">
-                            <p class="text-lg font-bold text-gray-900">Total</p>
-                            <p class="text-2xl font-bold text-blue-600">
-                                ${{ ($planData['price'] ?? 0) + $totalAddonPrice }}<span class="text-sm text-gray-600">/mo</span>
-                            </p>
-                        </div>
-                    </div>
-
-                    <!-- Features -->
-                    <div class="mb-8">
-                        <h3 class="font-semibold text-gray-900 mb-4">What's Included</h3>
-
-                        <ul class="space-y-3">
-                            @if (isset($planData['monitors']))
-                                <li class="flex items-center text-gray-700">
-                                    <svg class="h-5 w-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                                    </svg>
-                                    <strong>{{ $planData['monitors'] }}</strong> {{ $planData['monitors'] === 1 ? 'Monitor' : 'Monitors' }}
-                                </li>
-                            @endif
-
-                            @if (isset($planData['check_interval']))
-                                <li class="flex items-center text-gray-700">
-                                    <svg class="h-5 w-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                                    </svg>
-                                    <strong>{{ $planData['check_interval'] }}</strong> check interval
-                                </li>
-                            @endif
-
-                            @if (isset($planData['history_days']))
-                                <li class="flex items-center text-gray-700">
-                                    <svg class="h-5 w-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                                    </svg>
-                                    @if ($planData['history_days'] > 1000)
-                                        <strong>Full history</strong> retention
-                                    @else
-                                        <strong>{{ $planData['history_days'] }}-day</strong> history retention
-                                    @endif
-                                </li>
-                            @endif
-
-                            @if ($planData['features']['email_alerts'] ?? false)
-                                <li class="flex items-center text-gray-700">
-                                    <svg class="h-5 w-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                                    </svg>
-                                    Email alerts
-                                </li>
-                            @endif
-
-                            @if ($planData['features']['slack_integration'] ?? false)
-                                <li class="flex items-center text-gray-700">
-                                    <svg class="h-5 w-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                                    </svg>
-                                    Slack integration
-                                </li>
-                            @endif
-
-                            @if ($planData['features']['webhooks'] ?? false)
-                                <li class="flex items-center text-gray-700">
-                                    <svg class="h-5 w-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                                    </svg>
-                                    Webhooks
-                                </li>
-                            @endif
-
-                            @if ($planData['features']['team_invitations'] ?? false)
-                                <li class="flex items-center text-gray-700">
-                                    <svg class="h-5 w-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                                    </svg>
-                                    Team management
-                                </li>
-                            @endif
-                        </ul>
-                    </div>
-
-                    <!-- Paddle Checkout Button -->
-                    <div class="mb-6">
-          @php
-    $checkoutUrl = '#';
-
-    if (is_array($checkout)) {
-        $checkoutUrl = $checkout['url'] ?? '#';
-
-        // If service returned "#" but we have an id, try to build a redirect URL from the checkout id.
-        if (($checkoutUrl === '#' || trim($checkoutUrl) === '') && !empty($checkout['id'])) {
-            // If you have a config/env flag for sandbox, use it.
-            // Adjust the config key to whatever you already use in your app.
-            $isSandbox = (bool) (config('cashier.sandbox') ?? env('PADDLE_SANDBOX', false));
-
-            // Paddle hosted checkout base (most common)
-            // If your Paddle setup uses a different base, change it here ONLY.
-            $base = 'https://checkout.paddle.com/checkout/';
-
-            // Some setups use sandbox checkout host; if this doesn't work, we’ll swap to the correct one.
-            if ($isSandbox) {
-                // Many accounts still use the same host; keep base same unless you know your sandbox host differs.
-                $base = 'https://checkout.paddle.com/checkout/';
-            }
-
-            $checkoutUrl = $base . ltrim((string) $checkout['id']);
-        }
-    } elseif (is_object($checkout)) {
-        // If you ever pass an object
-        $checkoutUrl = $checkout->url ?? '#';
-
-        if (($checkoutUrl === '#' || trim((string)$checkoutUrl) === '') && isset($checkout->id) && $checkout->id) {
-            $isSandbox = (bool) (config('cashier.sandbox') ?? env('PADDLE_SANDBOX', false));
-            $base = 'https://checkout.paddle.com/checkout/';
-            if ($isSandbox) {
-                $base = 'https://checkout.paddle.com/checkout/';
-            }
-            $checkoutUrl = $base . ltrim((string) $checkout->id);
-        }
-    }
-
-    // Keep your message logic as-is
-    $checkoutMessage = is_array($checkout)
-        ? ($checkout['message'] ?? 'Paddle checkout not configured. Please set PADDLE_PRICE_IDS_PRO and PADDLE_PRICE_IDS_TEAM in your .env file.')
-        : 'Paddle checkout not configured. Please set PADDLE_PRICE_IDS_PRO and PADDLE_PRICE_IDS_TEAM in your .env file.';
-@endphp
-                       {{-- Paddle Checkout Button (Overlay) --}}
-<div class="mb-6">
-    @if (is_array($checkout) && (($checkout['url'] ?? '#') === '#'))
-        <button
-            type="button"
-            class="w-full inline-flex items-center justify-center bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-4 rounded-lg transition duration-200"
-            onclick="alert('{{ addslashes($checkout['message'] ?? 'Paddle checkout is not ready. Please configure the default payment link in Paddle.') }}')"
-        >
-            <div class="flex items-center justify-center">
-                <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                          d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
-                </svg>
-                Configure Paddle
-            </div>
-        </button>
-    @else
-        <x-paddle-button
-            :checkout="$checkout"
-            class="w-full inline-flex items-center justify-center bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold py-4 rounded-lg transition duration-200"
-        >
-            <div class="flex items-center justify-center">
-                <svg class="h-5 w-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                          d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
-                </svg>
-                Complete Payment Now
-            </div>
-        </x-paddle-button>
-    @endif
-</div>
-                    </div>
-
-                    <!-- Trust Badges -->
-                    <div class="flex items-center justify-center gap-4 text-sm text-gray-600">
-                        <div class="flex items-center">
-                            <svg class="h-5 w-5 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M5.293 9.707a1 1 0 010-1.414l4-4a1 1 0 011.414 0l4 4a1 1 0 01-1.414 1.414L11 7.414V15a1 1 0 11-2 0V7.414L6.707 9.707a1 1 0 01-1.414 0z" clip-rule="evenodd"/>
-                            </svg>
-                            Secure Payment
-                        </div>
-                        <div class="flex items-center">
-                            <svg class="h-5 w-5 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
-                            </svg>
-                            Money-back Guarantee
-                        </div>
-                        <div class="flex items-center">
-                            <svg class="h-5 w-5 text-green-500 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/>
-                            </svg>
-                            Encrypted & Safe
-                        </div>
-                    </div>
+            <!-- Team Plan -->
+            <x-ui.card class="border-2 border-emerald-600">
+                <x-ui.badge variant="success" class="mb-2">Most Popular</x-ui.badge>
+                <h3 class="text-2xl font-bold text-gray-900 mb-2">Team Plan</h3>
+                <div class="mb-4">
+                    <span class="text-4xl font-bold text-gray-900">$29</span>
+                    <span class="text-gray-600">/month</span>
                 </div>
+                
+                <ul class="space-y-3 mb-6">
+                    <li class="flex items-center gap-2">
+                        <svg class="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span>20 monitors</span>
+                    </li>
+                    <li class="flex items-center gap-2">
+                        <svg class="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span>5 team members</span>
+                    </li>
+                    <li class="flex items-center gap-2">
+                        <svg class="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span>Slack & Webhook alerts</span>
+                    </li>
+                </ul>
 
-                <!-- Footer -->
-                <div class="bg-gray-50 px-8 py-6 border-t border-gray-200">
-                    <p class="text-sm text-gray-600 text-center">
-                        By clicking "Complete Payment", you agree to our <a href="#" class="text-blue-600 hover:text-blue-700">Terms of Service</a> and <a href="#" class="text-blue-600 hover:text-blue-700">Privacy Policy</a>. Billing is managed by Paddle.
-                    </p>
-            </div>
+                <x-ui.button class="w-full paddle-checkout" data-price-id="team_price_id" variant="primary">
+                    Subscribe Now
+                </x-ui.button>
+            </x-ui.card>
         </div>
     </div>
+
+    @push('scripts')
+    <script>
+        document.querySelectorAll('.paddle-checkout').forEach(button => {
+            button.addEventListener('click', function() {
+                Paddle.Checkout.open({
+                    items: [{ priceId: this.dataset.priceId, quantity: 1 }],
+                    customer: { email: '{{ auth()->user()->email }}' },
+                    successUrl: '{{ route('billing.success') }}',
+                });
+            });
+        });
+    </script>
+    @endpush
 </div>
