@@ -14,17 +14,47 @@ Route::get('/_health', HealthController::class)
 ->middleware(['throttle:60,1'])
 ->name('system.health');
 
-// Public status pages
-Volt::route('/status', 'pages.public.status')->name('public.status');
-Volt::route('/status/{slug}', 'pages.public.team-status')->name('public.team-status');
+// ============================================================================
+// PUBLIC STATUS PAGES (No authentication required)
+// ============================================================================
 
+// Individual monitor status by UUID
+Route::get('/status/monitor/{uuid}', function($uuid) {
+    return view('livewire.pages.public.status-enhanced', [
+        'identifier' => $uuid,
+        'type' => 'monitor'
+    ]);
+})->name('public.monitor.status');
+
+// User's public status page
+Route::get('/status/user/{userId}', function($userId) {
+    return view('livewire.pages.public.status-enhanced', [
+        'identifier' => $userId,
+        'type' => 'user'
+    ]);
+})->name('public.user.status');
+
+// Team public status page by slug
+Route::get('/status/{slug}', function($slug) {
+    return view('livewire.pages.public.status-enhanced', [
+        'identifier' => $slug,
+        'type' => 'team'
+    ]);
+})->name('public.team.status');
+
+// Legacy public status (backward compatibility)
+Volt::route('/status', 'pages.public.status')->name('public.status.legacy');
+
+// ============================================================================
+// AUTHENTICATED ROUTES
+// ============================================================================
 
 Route::get('/', function () {
     return redirect()->route('dashboard');
 });
 
 Route::middleware(['auth', 'verified'])->group(function () {
-Volt::route('/dashboard', 'pages.dashboard')->name('dashboard');
+    Volt::route('/dashboard', 'pages.dashboard')->name('dashboard');
 
     Route::prefix('app')->group(function () {
         Volt::route('/monitors', 'pages.monitors.index')->name('monitors.index');
@@ -41,13 +71,7 @@ Volt::route('/dashboard', 'pages.dashboard')->name('dashboard');
         Route::get('/monitors/{monitor}/sla-reports/{report}/download', DownloadMonitorSlaReportController::class)
             ->middleware('signed')
             ->name('sla.reports.download');
-            
     });
-    
-    
-   
-
-
 
     // Admin (internal)
     Route::prefix('admin')->middleware('can:access-admin')->group(function () {
@@ -61,22 +85,30 @@ Volt::route('/dashboard', 'pages.dashboard')->name('dashboard');
     });
 });
 
-
-
+// ============================================================================
+// BILLING ROUTES
+// ============================================================================
 
 Route::middleware(['auth', 'verified'])
     ->prefix('app')
     ->name('billing.')
     ->group(function () {
-        Route::post('/billing/checkout', [\App\Http\Controllers\Billing\BillingController::class, 'checkout'])->name('checkout');
+        Route::post('/billing/checkout', [BillingController::class, 'checkout'])->name('checkout');
         Volt::route('/billing/checkout', 'pages.billing.checkout')->name('checkout.page');
-        Route::get('/billing/success', [\App\Http\Controllers\Billing\BillingController::class, 'success'])->name('success');
-        Route::post('/billing/cancel', [\App\Http\Controllers\Billing\BillingController::class, 'cancel'])->name('cancel');
+        Route::get('/billing/success', [BillingController::class, 'success'])->name('success');
+        Route::post('/billing/cancel', [BillingController::class, 'cancel'])->name('cancel');
     });
+
+// ============================================================================
+// USER SETTINGS
+// ============================================================================
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/timezone/update', [\App\Http\Controllers\TimezoneController::class, 'update'])->name('timezone.update');
 });
 
-// Paddle Webhook (must be outside auth middleware, CSRF is disabled for this route)
+// ============================================================================
+// WEBHOOKS (Outside auth middleware, CSRF disabled)
+// ============================================================================
+
 Route::post('/webhooks/paddle', PaddleWebhookController::class)->name('webhooks.paddle');
