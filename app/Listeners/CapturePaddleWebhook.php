@@ -16,6 +16,7 @@ class CapturePaddleWebhook
             'event_type' => $payload['event_type'] ?? 'unknown',
             'payload'    => $payload,
             'processed'  => false,
+            'signature_valid' => true, // ← ADD THIS LINE! If WebhookHandled fired, signature is valid
         ]);
 
         ProcessPaddleWebhookJob::dispatch($record->id);

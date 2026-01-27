@@ -6,6 +6,9 @@ use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 use App\Http\Controllers\System\HealthController;
 use App\Http\Controllers\Billing\BillingController;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 
 require(__DIR__.'/emails.php');
@@ -112,7 +115,49 @@ Route::middleware(['auth', 'verified'])->prefix('billing')->name('billing.')->gr
     // Legacy routes - now redirect to customer portal for seamless experience
     Route::post('/cancel', [BillingController::class, 'cancel'])->name('cancel');
     Route::post('/payment-method/update', [BillingController::class, 'updatePaymentMethod'])->name('payment-method.update');
+    
 });
+
+
+
+
+Route::middleware('auth')->get('/billing/portal', function (Request $request) {
+    $user = $request->user();
+
+    // Cashier customer creation
+    $customer = $user->customer ?? $user->createAsCustomer();
+
+    $baseUrl = config('billing.sandbox')
+        ? 'https://sandbox-api.paddle.com'
+        : 'https://api.paddle.com'; // Paddle base URLs :contentReference[oaicite:0]{index=0}
+
+    $endpoint = "{$baseUrl}/customers/{$customer->paddle_id}/portal-sessions"; // portal session endpoint :contentReference[oaicite:1]{index=1}
+$res = Http::withToken(config('cashier.api_key'))
+    ->acceptJson()
+    ->withHeaders(['Paddle-Version' => '1'])
+    ->send('POST', $endpoint);   // <-- no body
+    // no body required for homepage link :contentReference[oaicite:3]{index=3}
+
+    Log::error('Paddle portal session response', [
+        'endpoint' => $endpoint,
+        'status'   => $res->status(),
+        'body'     => $res->json(),
+    ]);
+
+    if (! $res->successful()) {
+        // Show details quickly while debugging
+        return response()->json([
+            'message' => 'Paddle portal session failed',
+            'status'  => $res->status(),
+            'body'    => $res->json(),
+        ], 502);
+    }
+
+    $portalUrl = data_get($res->json(), 'data.urls.general.overview'); // returned link :contentReference[oaicite:4]{index=4}
+    abort_unless($portalUrl, 502, 'Missing portal URL in Paddle response.');
+
+    return redirect()->away($portalUrl);
+})->name('billing.portal');
 
 // ============================================================================
 // USER SETTINGS

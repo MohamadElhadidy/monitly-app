@@ -4,6 +4,7 @@ return [
     'paddle_webhook_secret' => env('PADDLE_WEBHOOK_SECRET'),
     'paddle_customer_token' => env('PADDLE_CUSTOMER_TOKEN'),
     'sandbox' => env('PADDLE_SANDBOX'),
+    'api_key' => env('PADDLE_API_KEY'),
     'grace_days' => (int) env('BILLING_GRACE_DAYS', 7),
 
     'plans' => [

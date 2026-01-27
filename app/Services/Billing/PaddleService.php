@@ -63,7 +63,7 @@ class PaddleService
                 ];
             }
 
-            // CRITICAL FIX: Determine owner_type based on billable model
+            // Determine owner_type based on billable model
             $ownerType = $billable instanceof \App\Models\Team ? 'team' : 'user';
             
             // Use Laravel Cashier if available (only for single item)
@@ -72,17 +72,17 @@ class PaddleService
                     $priceId = $items[0]['price_id'];
                     $quantity = $items[0]['quantity'] ?? 1;
                     
-                    // CRITICAL FIX: Pass owner_type and owner_id in custom_data
-                    $checkout = $billable->checkout($priceId, $quantity, [
-                        'return_url' => route('billing.success'),
-                        'custom_data' => [
-                            'owner_type' => $ownerType,  // ← THIS WAS MISSING!
-                            'owner_id' => $billable->id, // ← THIS WAS MISSING!
-                            'user_id' => $billable->id,  // Keep for backward compatibility
+                    // ✅ FIXED: Use fluent API with customData() method
+                    $checkout = $billable
+                        ->checkout($priceId, $quantity)
+                        ->returnTo(route('billing.success'))
+                        ->customData([
+                            'owner_type' => $ownerType,
+                            'owner_id' => $billable->id,
+                            'user_id' => $billable->id,
                             'plan' => $plan,
                             'addons' => $addons,
-                        ],
-                    ]);
+                        ]);
 
                     Log::info('Cashier checkout created', [
                         'owner_type' => $ownerType,
@@ -91,7 +91,7 @@ class PaddleService
                     ]);
 
                     return [
-                        'url' => $checkout->url ?? '#',
+                        'url' => $checkout->url() ?? '#',
                         'id' => $checkout->id ?? 'checkout_' . uniqid(),
                     ];
                 } catch (\Exception $e) {
@@ -103,7 +103,7 @@ class PaddleService
                 }
             }
 
-            // Fallback: Direct Paddle API call
+            // Fallback: Direct Paddle API call for multiple items
             $apiKey = config('services.paddle.api_key') ?? env('PADDLE_API_KEY');
             
             if ($apiKey) {
@@ -115,8 +115,8 @@ class PaddleService
                         'customer_email' => $billable->email ?? null,
                         'return_url' => route('billing.success'),
                         'custom_data' => [
-                            'owner_type' => $ownerType,  // ← CRITICAL!
-                            'owner_id' => $billable->id, // ← CRITICAL!
+                            'owner_type' => $ownerType,
+                            'owner_id' => $billable->id,
                             'plan' => $plan,
                             'addons' => $addons,
                         ],
