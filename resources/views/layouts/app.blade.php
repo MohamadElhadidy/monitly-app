@@ -1,302 +1,231 @@
 <!DOCTYPE html>
-<html lang="{{ str_replace('_', '-', app()->getLocale()) }}">
+<html lang="{{ str_replace('_', '-', app()->getLocale()) }}" class="h-full bg-white">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="csrf-token" content="{{ csrf_token() }}">
-    <title>{{ config('app.name', 'Monitly') }}</title>
+
+    <title>{{ isset($title) ? $title . ' - ' : '' }}{{ config('app.name', 'Monitly') }}</title>
+
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.bunny.net">
-    <link href="https://fonts.bunny.net/css?family=inter:400,500,600,700" rel="stylesheet" />
+    <link href="https://fonts.bunny.net/css?family=inter:400,500,600,700&display=swap" rel="stylesheet" />
+
+    <!-- Prevent FOUC -->
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+
+    <!-- Scripts -->
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
     @paddleJS
 </head>
-<body class="bg-gray-50 antialiased">
-    <x-banner />
-
+<body class="h-full font-sans antialiased bg-gray-50 text-gray-900">
     @php
         $user = auth()->user();
-        $plan = strtolower($user->billing_plan ?? 'free');
-        
-        $pageTitle = match (true) {
-            request()->routeIs('monitors.*') => 'Monitors',
-            request()->routeIs('sla.*') => 'Reports',
-            request()->routeIs('billing.*') => 'Billing',
-            request()->routeIs('profile.show') => 'Settings',
-            request()->routeIs('admin.*') => 'Admin',
-            default => 'Dashboard',
-        };
-
-        $isActive = fn(string $pattern) => request()->routeIs($pattern);
-        
-        $planColors = [
-            'free' => ['bg' => 'bg-slate-100', 'text' => 'text-slate-700', 'border' => 'border-slate-300'],
-            'pro' => ['bg' => 'bg-blue-100', 'text' => 'text-blue-700', 'border' => 'border-blue-300'],
-            'team' => ['bg' => 'bg-purple-100', 'text' => 'text-purple-700', 'border' => 'border-purple-300'],
-        ];
-        $planColor = $planColors[$plan] ?? $planColors['free'];
+        $planKey = strtolower($user->billing_plan ?? 'free');
+        $isTeamPlan = $planKey === 'team';
+        $team = $user?->currentTeam ?? $user?->teams()->first();
+        $workspaceName = $team?->name ?? $user->name;
     @endphp
 
-    <div class="flex h-screen overflow-hidden">
-        <!-- Sidebar -->
-        <aside class="w-72 bg-gradient-to-b from-slate-900 via-slate-800 to-slate-900 text-white hidden lg:flex flex-col border-r border-slate-700/50 shadow-2xl">
-            <!-- Logo Section -->
-            <div class="p-6 border-b border-slate-700/50 bg-slate-800/50 backdrop-blur-sm">
-                <a href="{{ route('dashboard') }}" class="flex items-center gap-3 group">
-                    <div class="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center font-bold text-xl shadow-lg group-hover:scale-105 transition-transform duration-200">
-                        <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                        </svg>
-                    </div>
-                    <div>
-                        <div class="font-bold text-lg text-white tracking-tight">Monitly</div>
-                        <div class="text-xs text-slate-400 font-medium">Monitoring Platform</div>
-                    </div>
-                </a>
-            </div>
+    <div class="h-full" x-data="{ sidebarOpen: false }">
+        <!-- Mobile sidebar backdrop -->
+        <div 
+            x-show="sidebarOpen" 
+            x-cloak
+            class="relative z-50 lg:hidden" 
+            role="dialog" 
+            aria-modal="true"
+        >
+            <div 
+                x-show="sidebarOpen"
+                x-transition:enter="transition-opacity ease-linear duration-300"
+                x-transition:enter-start="opacity-0"
+                x-transition:enter-end="opacity-100"
+                x-transition:leave="transition-opacity ease-linear duration-300"
+                x-transition:leave-start="opacity-100"
+                x-transition:leave-end="opacity-0"
+                class="fixed inset-0 bg-gray-900/80 backdrop-blur-sm"
+                @click="sidebarOpen = false"
+            ></div>
 
-            <!-- Plan Badge -->
-            <div class="mx-4 mt-4 p-4 bg-gradient-to-br from-slate-800/80 to-slate-700/80 rounded-xl border border-slate-600/50 backdrop-blur-sm shadow-lg">
-                <div class="flex items-center justify-between mb-2">
-                    <div class="text-xs font-semibold text-slate-300 uppercase tracking-wider">Current Plan</div>
-                    @if($plan !== 'team')
-                        <a href="{{ route('billing.index') }}" class="text-xs text-blue-400 hover:text-blue-300 font-medium transition-colors">
-                            Upgrade →
-                        </a>
-                    @endif
-                </div>
-                <div class="flex items-center gap-2">
-                    <span class="inline-flex items-center px-3 py-1.5 rounded-lg font-bold text-sm capitalize {{ $planColor['bg'] }} {{ $planColor['text'] }} border {{ $planColor['border'] }}">
-                        {{ $plan }}
-                    </span>
-                    @if($plan === 'free')
-                        <span class="text-xs text-slate-400">Limited</span>
-                    @endif
-                </div>
-            </div>
-
-            <!-- Navigation -->
-            <nav class="flex-1 px-3 py-4 space-y-1 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-600 scrollbar-track-transparent">
-                <a href="{{ route('dashboard') }}" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 {{ $isActive('dashboard') ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/30' : 'text-slate-300 hover:bg-slate-700/50 hover:text-white' }}">
-                    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"></path>
-                    </svg>
-                    <span class="font-medium">Dashboard</span>
-                    @if($isActive('dashboard'))
-                        <div class="ml-auto w-2 h-2 bg-white rounded-full"></div>
-                    @endif
-                </a>
-
-                <a href="{{ route('monitors.index') }}" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 {{ $isActive('monitors.*') ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/30' : 'text-slate-300 hover:bg-slate-700/50 hover:text-white' }}">
-                    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                    </svg>
-                    <span class="font-medium">Monitors</span>
-                    @if($isActive('monitors.*'))
-                        <div class="ml-auto w-2 h-2 bg-white rounded-full"></div>
-                    @endif
-                </a>
-
-                <a href="{{ route('sla.overview') }}" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 {{ $isActive('sla.*') ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/30' : 'text-slate-300 hover:bg-slate-700/50 hover:text-white' }}">
-                    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
-                    </svg>
-                    <span class="font-medium">Reports</span>
-                    @if($isActive('sla.*'))
-                        <div class="ml-auto w-2 h-2 bg-white rounded-full"></div>
-                    @endif
-                </a>
-
-                @if($plan === 'team')
-                <div class="pt-4 mt-4 border-t border-slate-700/50">
-                    <div class="px-4 py-2 text-xs font-bold text-slate-400 uppercase tracking-wider">Team</div>
-                    
-                    <a href="#" class="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300 hover:bg-slate-700/50 hover:text-white transition-all duration-200">
-                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path>
-                        </svg>
-                        <span class="font-medium">Team Members</span>
-                    </a>
-
-                    <a href="#" class="flex items-center gap-3 px-4 py-3 rounded-xl text-slate-300 hover:bg-slate-700/50 hover:text-white transition-all duration-200">
-                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                        </svg>
-                        <span class="font-medium">Integrations</span>
-                    </a>
-                </div>
-                @endif
-
-                <div class="pt-4 mt-4 border-t border-slate-700/50">
-                    <a href="{{ route('billing.index') }}" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 {{ $isActive('billing.*') ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/30' : 'text-slate-300 hover:bg-slate-700/50 hover:text-white' }}">
-                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M7 15h1m4 0h1m-7 4h12a3 3 0 003-3V8a3 3 0 00-3-3H6a3 3 0 00-3 3v8a3 3 0 003 3z"></path>
-                        </svg>
-                        <span class="font-medium">Billing</span>
-                        @if($isActive('billing.*'))
-                            <div class="ml-auto w-2 h-2 bg-white rounded-full"></div>
-                        @endif
-                    </a>
-                </div>
-
-                <div class="pt-4 mt-4 border-t border-slate-700/50">
-                    <a href="{{ route('profile.show') }}" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 {{ $isActive('profile.show') ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/30' : 'text-slate-300 hover:bg-slate-700/50 hover:text-white' }}">
-                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                        </svg>
-                        <span class="font-medium">Settings</span>
-                        @if($isActive('profile.show'))
-                            <div class="ml-auto w-2 h-2 bg-white rounded-full"></div>
-                        @endif
-                    </a>
-
-                    @if ($user->is_admin)
-                    <a href="{{ route('admin.index') }}" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 {{ $isActive('admin.*') ? 'bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg shadow-blue-500/30' : 'text-slate-300 hover:bg-slate-700/50 hover:text-white' }}">
-                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
-                        </svg>
-                        <span class="font-medium">Admin</span>
-                        @if($isActive('admin.*'))
-                            <div class="ml-auto w-2 h-2 bg-white rounded-full"></div>
-                        @endif
-                    </a>
-                    @endif
-                </div>
-            </nav>
-
-            <!-- User Section -->
-            <div class="border-t border-slate-700/50 p-4 bg-slate-800/30 backdrop-blur-sm">
-                <div class="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-700/30 transition-colors">
-                    <img src="{{ $user->profile_photo_url ?? 'https://ui-avatars.com/api/?name=' . urlencode($user->name) . '&background=3b82f6&color=fff' }}" 
-                         alt="{{ $user->name }}" 
-                         class="w-10 h-10 rounded-xl ring-2 ring-slate-600 shadow-lg">
-                    <div class="flex-1 min-w-0">
-                        <div class="text-sm font-semibold text-white truncate">{{ $user->name }}</div>
-                        <div class="text-xs text-slate-400 truncate">{{ $user->email }}</div>
-                    </div>
-                </div>
-                <form method="POST" action="{{ route('logout') }}" class="mt-3">
-                    @csrf
-                    <button type="submit" class="w-full text-left px-4 py-2.5 text-sm font-medium text-slate-300 hover:bg-slate-700/50 hover:text-white rounded-xl transition-all duration-200 flex items-center gap-2">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path>
-                        </svg>
-                        Logout
-                    </button>
-                </form>
-            </div>
-        </aside>
-
-        <!-- Main Content -->
-        <div class="flex-1 flex flex-col overflow-hidden bg-gray-50">
-            <!-- Header -->
-            <header class="bg-white border-b border-gray-200/80 backdrop-blur-sm shadow-sm sticky top-0 z-40">
-                <div class="h-16 px-6 flex items-center justify-between">
-                    <div class="flex items-center gap-4">
-                        <h1 class="text-2xl font-bold text-gray-900 tracking-tight">{{ $pageTitle }}</h1>
-                        @if(request()->routeIs('monitors.show'))
-                            <span class="text-sm text-gray-500">/</span>
-                            <span class="text-sm text-gray-600 font-medium">Monitor Details</span>
-                        @endif
-                    </div>
-                    
-                    <div class="flex items-center gap-3">
-                        <!-- Quick Actions -->
-                        @if(request()->routeIs('monitors.index'))
-                            <a href="{{ route('monitors.index') }}" class="hidden sm:flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-lg font-medium text-sm hover:from-blue-700 hover:to-indigo-700 transition-all shadow-md hover:shadow-lg">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
-                                </svg>
-                                New Monitor
-                            </a>
-                        @endif
-
-                        <!-- Plan Badge -->
-                        <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg {{ $planColor['bg'] }} {{ $planColor['text'] }} border {{ $planColor['border'] }}">
-                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"></path>
+            <!-- Mobile sidebar -->
+            <div class="fixed inset-0 flex z-50">
+                <div 
+                    x-show="sidebarOpen"
+                    x-transition:enter="transition ease-in-out duration-300 transform"
+                    x-transition:enter-start="-translate-x-full"
+                    x-transition:enter-end="translate-x-0"
+                    x-transition:leave="transition ease-in-out duration-300 transform"
+                    x-transition:leave-start="translate-x-0"
+                    x-transition:leave-end="-translate-x-full"
+                    class="relative mr-16 flex w-full max-w-xs flex-1"
+                >
+                    <!-- Close button -->
+                    <div class="absolute left-full top-0 flex w-16 justify-center pt-5">
+                        <button type="button" class="-m-2.5 p-2.5" @click="sidebarOpen = false">
+                            <span class="sr-only">Close sidebar</span>
+                            <svg class="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                             </svg>
-                            <span class="text-sm font-semibold capitalize">{{ $plan }}</span>
-                        </div>
-
-                        <!-- Timezone Selector -->
-                        <div class="relative">
-                            <select 
-                                onchange="updateTimezone(this.value)"
-                                class="appearance-none bg-white border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                                @php
-                                    $timezones = [
-                                        'UTC' => 'UTC',
-                                        'America/New_York' => 'ET',
-                                        'America/Chicago' => 'CT',
-                                        'America/Denver' => 'MT',
-                                        'America/Los_Angeles' => 'PT',
-                                        'Europe/London' => 'GMT',
-                                        'Europe/Paris' => 'CET',
-                                        'Europe/Berlin' => 'CET',
-                                        'Asia/Tokyo' => 'JST',
-                                        'Asia/Shanghai' => 'CST',
-                                        'Asia/Dubai' => 'GST',
-                                        'Asia/Kolkata' => 'IST',
-                                        'Australia/Sydney' => 'AEDT',
-                                        'America/Sao_Paulo' => 'BRT',
-                                    ];
-                                    $currentTimezone = $user->timezone ?? 'UTC';
-                                @endphp
-                                @foreach ($timezones as $tz => $label)
-                                    <option value="{{ $tz }}" {{ $currentTimezone === $tz ? 'selected' : '' }}>
-                                        {{ $label }}
-                                    </option>
-                                @endforeach
-                            </select>
-                        </div>
-
-                        <!-- Notifications (placeholder) -->
-                        <button class="relative p-2 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
-                            </svg>
-                            <span class="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
                         </button>
                     </div>
-                </div>
-            </header>
 
-            <!-- Content -->
-            <main class="flex-1 overflow-y-auto">
-                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                    {{ $slot }}
+                    <!-- Mobile sidebar content -->
+                    @include('layouts.partials.sidebar')
                 </div>
+            </div>
+        </div>
+
+        <!-- Static sidebar for desktop -->
+        <div class="hidden lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-72 lg:flex-col">
+            @include('layouts.partials.sidebar')
+        </div>
+
+        <!-- Main content wrapper -->
+        <div class="lg:pl-72 h-full flex flex-col">
+            <!-- Top navigation bar -->
+            <div class="sticky top-0 z-40 flex h-16 shrink-0 items-center gap-x-4 border-b border-gray-200 bg-white px-4 shadow-sm sm:gap-x-6 sm:px-6 lg:px-8">
+                <!-- Mobile menu button -->
+                <button 
+                    type="button" 
+                    class="-m-2.5 p-2.5 text-gray-500 hover:text-gray-900 lg:hidden" 
+                    @click="sidebarOpen = true"
+                >
+                    <span class="sr-only">Open sidebar</span>
+                    <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+                    </svg>
+                </button>
+
+                <!-- Separator -->
+                <div class="h-6 w-px bg-gray-200 lg:hidden"></div>
+
+                <!-- Breadcrumbs/Page title -->
+                <div class="flex flex-1 gap-x-4 self-stretch lg:gap-x-6 items-center">
+                    {{ $breadcrumbs ?? '' }}
+                </div>
+
+                <!-- Right side actions -->
+                <div class="flex items-center gap-x-4 lg:gap-x-6">
+                    <!-- Search -->
+                    <button type="button" class="hidden lg:flex -m-2.5 p-2.5 text-gray-500 hover:text-gray-900 items-center gap-2 text-sm">
+                        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                        </svg>
+                        <span class="hidden xl:inline text-gray-500">Search</span>
+                        <kbd class="hidden xl:inline-flex items-center px-2 py-0.5 text-xs font-semibold text-gray-600 bg-gray-100 border border-gray-300 rounded">
+                            ⌘K
+                        </kbd>
+                    </button>
+
+                    <!-- Docs link -->
+                    <a href="#" class="hidden lg:block text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
+                        Docs
+                    </a>
+
+                    <!-- Help link -->
+                    <a href="#" class="hidden lg:block text-sm font-medium text-gray-600 hover:text-gray-900 transition-colors">
+                        Help
+                    </a>
+
+                    <!-- Notifications -->
+                    <div class="relative" x-data="{ open: false }">
+                        <button 
+                            type="button" 
+                            @click="open = !open"
+                            class="-m-2.5 p-2.5 text-gray-500 hover:text-gray-900 relative"
+                        >
+                            <span class="sr-only">View notifications</span>
+                            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
+                            </svg>
+                            <!-- Notification badge -->
+                            <span class="absolute top-0 right-0 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white"></span>
+                        </button>
+                    </div>
+
+                    <!-- Separator -->
+                    <div class="hidden lg:block lg:h-6 lg:w-px lg:bg-gray-200"></div>
+
+                    <!-- Profile dropdown -->
+                    <div class="relative" x-data="{ open: false }">
+                        <button 
+                            type="button" 
+                            class="flex items-center gap-x-3 -m-1.5 p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                            @click="open = !open"
+                            @click.away="open = false"
+                        >
+                            <div class="flex items-center gap-x-3">
+                                <div class="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-600 text-white text-sm font-semibold ring-2 ring-gray-200">
+                                    {{ strtoupper(substr($user->name, 0, 2)) }}
+                                </div>
+                                <span class="hidden lg:flex lg:items-center">
+                                    <span class="text-sm font-semibold leading-6 text-gray-900">{{ Str::limit($workspaceName, 20) }}</span>
+                                    <svg class="ml-2 h-5 w-5 text-gray-500" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clip-rule="evenodd" />
+                                    </svg>
+                                </span>
+                            </div>
+                        </button>
+
+                        <!-- Dropdown menu -->
+                        <div 
+                            x-show="open"
+                            x-cloak
+                            x-transition:enter="transition ease-out duration-100"
+                            x-transition:enter-start="transform opacity-0 scale-95"
+                            x-transition:enter-end="transform opacity-100 scale-100"
+                            x-transition:leave="transition ease-in duration-75"
+                            x-transition:leave-start="transform opacity-100 scale-100"
+                            x-transition:leave-end="transform opacity-0 scale-95"
+                            class="absolute right-0 z-10 mt-2.5 w-64 origin-top-right rounded-lg bg-white shadow-lg ring-1 ring-gray-200 focus:outline-none"
+                        >
+                            <div class="px-4 py-3 border-b border-gray-200">
+                                <p class="text-sm font-medium text-gray-900 truncate">{{ $user->name }}</p>
+                                <p class="text-xs text-gray-600 truncate">{{ $user->email }}</p>
+                            </div>
+                            <div class="py-1">
+                                <a href="{{ route('profile.show') }}" class="flex items-center gap-x-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                                    <svg class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+                                    </svg>
+                                    Account Settings
+                                </a>
+                                <a href="{{ route('billing.index') }}" class="flex items-center gap-x-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                                    <svg class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 8.25h19.5M2.25 9h19.5m-16.5 5.25h6m-6 2.25h3m-3.75 3h15a2.25 2.25 0 002.25-2.25V6.75A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25v10.5A2.25 2.25 0 004.5 19.5z" />
+                                    </svg>
+                                    Billing & Plans
+                                </a>
+                            </div>
+                            <div class="py-1 border-t border-gray-200">
+                                <form method="POST" action="{{ route('logout') }}">
+                                    @csrf
+                                    <button type="submit" class="flex w-full items-center gap-x-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors">
+                                        <svg class="h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+                                        </svg>
+                                        Sign out
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Page content -->
+            <main class="flex-1 overflow-y-auto bg-gray-50">
+                {{ $slot }}
             </main>
         </div>
     </div>
 
     @livewireScripts
-    <script>
-        function updateTimezone(timezone) {
-            fetch('{{ route('timezone.update') }}', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify({ timezone: timezone })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    // Reload the page to apply the new timezone
-                    window.location.reload();
-                } else {
-                    console.error('Failed to update timezone');
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-            });
-        }
-    </script>
+    
+    <x-banner />
 </body>
 </html>
