@@ -37,57 +37,69 @@ class BillingController extends Controller
     public function portal(Request $request)
     {
         $user = $request->user();
-        
-        // Ensure user has a Paddle customer record
+
+        // Ensure we have a Cashier customer record (customers table + Paddle customer)
         if (!$user->customer) {
             $user->createAsCustomer();
         }
-        
+
         $customerId = $user->customer->paddle_id;
-        
-        // Determine API base URL
-        $baseUrl = config('services.paddle.sandbox', true)
-            ? 'https://sandbox-api.paddle.com'
-            : 'https://api.paddle.com';
-        
+
+        // Optional: include the active subscription id so Paddle returns deep links
+        $subscription = $user->subscription('default') ?? $user->subscription();
+        $subscriptionId = $subscription?->paddle_id;
+
+        $apiKey = config('services.paddle.api_key') ?? env('PADDLE_API_KEY');
+        $baseUrl = rtrim(config('services.paddle.base_url', 'https://api.paddle.com/'), '/') . '/';
+
+        if (!$apiKey) {
+            return redirect()->route('billing.index')->with('error', 'Paddle API key is not configured (PADDLE_API_KEY).');
+        }
+
+        $payload = [];
+        if ($subscriptionId) {
+            $payload['subscription_ids'] = [$subscriptionId];
+        }
+
         try {
-            // Create portal session using Paddle API
-            $response = Http::withToken(config('services.paddle.api_key'))
-                ->acceptJson()
-                ->withHeaders(['Paddle-Version' => '1'])
-                ->post("{$baseUrl}/customers/{$customerId}/portal-sessions");
-            
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . $apiKey,
+                'Content-Type' => 'application/json',
+            ])->post($baseUrl . "customers/{$customerId}/portal-sessions", $payload);
+
             if (!$response->successful()) {
-                Log::error('Paddle portal API error', [
+                Log::error('Paddle portal session failed', [
                     'status' => $response->status(),
-                    'body' => $response->body(),
+                    'body' => $response->json(),
+                    'customer_id' => $customerId,
+                    'subscription_id' => $subscriptionId,
                 ]);
-                
-                throw new \Exception('Paddle API returned error: ' . $response->status());
+
+                return redirect()->route('billing.index')
+                    ->with('error', 'Could not open billing portal. Please try again or contact support.');
             }
-            
-            $data = $response->json();
-            
-            // Extract portal URL from response
-            $portalUrl = $data['data']['urls']['general']['overview'] ?? null;
-            
-            if (!$portalUrl) {
-                Log::error('No portal URL in Paddle response', ['response' => $data]);
-                throw new \Exception('No portal URL in response');
+
+            $data = $response->json('data');
+            $url = data_get($data, 'urls.general.overview');
+
+            if (!$url) {
+                Log::error('Paddle portal session response missing url', ['response' => $response->json()]);
+                return redirect()->route('billing.index')
+                    ->with('error', 'Could not open billing portal (missing URL).');
             }
-            
-            return redirect()->away($portalUrl);
-            
-        } catch (\Exception $e) {
-            Log::error('Paddle portal error', [
-                'message' => $e->getMessage(),
+
+            return redirect()->away($url);
+        } catch (\Throwable $e) {
+            Log::error('Paddle portal session exception', [
+                'error' => $e->getMessage(),
                 'customer_id' => $customerId,
             ]);
-            
+
             return redirect()->route('billing.index')
-                ->with('error', 'Unable to access customer portal. Please try again later.');
+                ->with('error', 'Could not open billing portal. Please try again.');
         }
     }
+
 
     /**
      * Cancel subscription (with grace period).

@@ -12,7 +12,7 @@ class PaddleService
 
     public function __construct()
     {
-        $this->apiKey = config('services.paddle.client_token') ?? env('PADDLE_CUSTOMER_TOKEN');
+        $this->apiKey = config('services.paddle.api_key') ?? env('PADDLE_API_KEY');
     }
 
     public function createCheckoutSession(
@@ -103,53 +103,13 @@ class PaddleService
                 }
             }
 
-            // Fallback: Direct Paddle API call for multiple items
-            $apiKey = config('services.paddle.api_key') ?? env('PADDLE_API_KEY');
-            
-            if ($apiKey) {
-                try {
-                    $response = Http::withHeaders([
-                        'Authorization' => 'Bearer ' . $apiKey,
-                    ])->post(config('services.paddle.base_url') . 'transactions', [
-                        'items' => $items,
-                        'customer_email' => $billable->email ?? null,
-                        'return_url' => route('billing.success'),
-                        'custom_data' => [
-                            'owner_type' => $ownerType,
-                            'owner_id' => $billable->id,
-                            'plan' => $plan,
-                            'addons' => $addons,
-                        ],
-                    ]);
-
-                    if ($response->successful()) {
-                        $data = $response->json();
-                        
-                        Log::info('Direct API checkout created', [
-                            'owner_type' => $ownerType,
-                            'owner_id' => $billable->id,
-                            'plan' => $plan,
-                        ]);
-                        
-                        return [
-                            'url' => $data['checkout']['url'] ?? '#',
-                            'id' => $data['id'] ?? 'checkout_' . uniqid(),
-                        ];
-                    } else {
-                        Log::error('Paddle API call failed', [
-                            'status' => $response->status(),
-                            'body' => $response->body(),
-                        ]);
-                    }
-                } catch (\Exception $e) {
-                    Log::error('Paddle API exception', ['error' => $e->getMessage()]);
-                }
-            }
+            // Fallback: For subscriptions, use Cashier subscribe() (see CheckoutController).
+            // We intentionally do NOT create transactions here because it would bypass Cashier's subscription tables/webhooks.
 
             return [
                 'url' => '#',
-                'id' => 'dev_checkout_' . uniqid(),
-                'message' => 'Paddle API not configured.',
+                'id' => 'cashier_required',
+                'message' => 'This checkout must be created via Laravel Cashier (subscribe()).',
             ];
         } catch (\Exception $e) {
             Log::error('Paddle checkout error', ['error' => $e->getMessage()]);
@@ -177,6 +137,7 @@ public function cancelSubscription(string $subscriptionId, bool $immediately = f
         $response = Http::withHeaders([
             'Authorization' => 'Bearer ' . $apiKey,
             'Content-Type' => 'application/json',
+            'Paddle-Version' => '1',
         ])->post("https://api.paddle.com/subscriptions/{$subscriptionId}/cancel", [
             'effective_from' => $immediately ? 'immediately' : 'next_billing_period',
         ]);

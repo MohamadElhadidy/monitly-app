@@ -36,11 +36,15 @@ class User extends Authenticatable implements MustVerifyEmail
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'next_bill_at' => 'datetime',
+             'last_bill_at' => 'datetime',
             'grace_ends_at' => 'datetime',
             'first_paid_at' => 'datetime',
             'refund_override_until' => 'datetime',
         ];
     }
+    
+    
+
 
     protected $hidden = [
         'password',

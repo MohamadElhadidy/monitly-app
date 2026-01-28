@@ -3,6 +3,7 @@
 use App\Http\Controllers\Sla\DownloadMonitorSlaReportController;
 use App\Http\Controllers\Billing\BillingController;
 use App\Http\Controllers\Billing\CheckoutController;
+use App\Http\Controllers\Billing\PaddleWebhookController;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 use App\Http\Controllers\System\HealthController;
@@ -95,8 +96,14 @@ Route::middleware(['auth', 'verified'])->prefix('billing')->name('billing.')->gr
 
     Volt::route('/', 'pages.billing.index')->name('index');
 
-    Route::get('/checkout', [CheckoutController::class, 'checkout'])->name('checkout');
-    Route::get('/checkout/success', [CheckoutController::class, 'success'])->name('success');
+    Route::get('/checkout', [CheckoutController::class, 'show'])
+        ->name('checkout');    
+    Volt::route('/checkout/success', 'pages.billing.success')->name('success');
+
+    // Route::get('/checkout/success', [CheckoutController::class, 'success'])->name('success');
+    
+    
+    
     Route::get('/checkout/cancel', [CheckoutController::class, 'cancel'])->name('cancel');
     
     // Paddle Customer Portal (for managing subscriptions, payment methods, invoices)
@@ -120,12 +127,4 @@ Route::middleware(['auth', 'verified'])->prefix('billing')->name('billing.')->gr
 // This route is automatically registered by Cashier at /paddle/webhook
 // But we can also manually define it if needed
 // ============================================================================
-// Route::post('/paddle/webhook', '\Laravel\Paddle\Http\Controllers\WebhookController');
-
-// ============================================================================
-// USER SETTINGS
-// ============================================================================
-
-Route::middleware(['auth', 'verified'])->group(function () {
-    Route::post('/timezone/update', [\App\Http\Controllers\TimezoneController::class, 'update'])->name('timezone.update');
-});
+Route::post('/webhooks/paddle', [PaddleWebhookController::class, 'handle']);

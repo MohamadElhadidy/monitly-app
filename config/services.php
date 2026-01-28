@@ -36,9 +36,18 @@ return [
     ],
 
     'paddle' => [
-        'client_token' => env('PADDLE_CUSTOMER_TOKEN'),
+        // Cashier Paddle (Billing) expects these env vars:
+        // PADDLE_CLIENT_SIDE_TOKEN, PADDLE_API_KEY, PADDLE_WEBHOOK_SECRET, PADDLE_SANDBOX
+        'client_side_token' => env('PADDLE_CLIENT_SIDE_TOKEN'),
         'api_key' => env('PADDLE_API_KEY'),
-        'base_url' => env('PADDLE_API_BASE_URL', 'https://vendors.paddle.com/api/2.0/'),
+        'webhook_secret' => env('PADDLE_WEBHOOK_SECRET'),
+        'retain_key' => env('PADDLE_RETAIN_KEY'),
+
+        // Used by our direct API calls (customer portal sessions, etc.)
+        'base_url' => env('PADDLE_API_BASE_URL', 'https://api.paddle.com/'),
+
+        // Convenience flag used by UI / scripts
+        'sandbox' => env('PADDLE_SANDBOX', false),
     ],
 
 ];

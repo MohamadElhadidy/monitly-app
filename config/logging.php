@@ -126,6 +126,12 @@ return [
         'emergency' => [
             'path' => storage_path('logs/laravel.log'),
         ],
+        
+        'paddle' => [
+            'driver' => 'single',
+            'path' => storage_path('logs/paddle.log'),
+            'level' => 'debug',
+        ],
 
     ],
 
