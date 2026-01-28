@@ -92,9 +92,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
 Route::middleware(['auth', 'verified'])->prefix('billing')->name('billing.')->group(function () {
     
     // Main billing dashboard
-    Route::get('/', [BillingController::class, 'index'])->name('index');
-    
-    // Checkout
+
+    Volt::route('/', 'pages.billing.index')->name('index');
+
     Route::get('/checkout', [CheckoutController::class, 'checkout'])->name('checkout');
     Route::get('/checkout/success', [CheckoutController::class, 'success'])->name('success');
     Route::get('/checkout/cancel', [CheckoutController::class, 'cancel'])->name('cancel');
