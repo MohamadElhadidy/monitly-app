@@ -19,6 +19,7 @@
     <!-- Scripts -->
     @vite(['resources/css/app.css', 'resources/js/app.js'])
     @livewireStyles
+    @paddleJS
 </head>
 <body class="h-full font-sans antialiased bg-gray-50">
     @php

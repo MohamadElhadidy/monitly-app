@@ -1,21 +1,17 @@
 <?php
 
 use App\Http\Controllers\Sla\DownloadMonitorSlaReportController;
-use App\Http\Controllers\Webhooks\PaddleWebhookController;
+use App\Http\Controllers\Billing\BillingController;
+use App\Http\Controllers\Billing\CheckoutController;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 use App\Http\Controllers\System\HealthController;
-use App\Http\Controllers\Billing\BillingController;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
-
 
 require(__DIR__.'/emails.php');
 
 Route::get('/_health', HealthController::class)
-->middleware(['throttle:60,1'])
-->name('system.health');
+    ->middleware(['throttle:60,1'])
+    ->name('system.health');
 
 // ============================================================================
 // PUBLIC STATUS PAGES (No authentication required)
@@ -66,15 +62,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Volt::route('/monitors/{monitor}/edit', 'pages.monitors.edit')->name('monitors.edit');
 
         Volt::route('/sla', 'pages.sla.overview')->name('sla.overview');
-
         Volt::route('/incidents', 'pages.incidents.index')->name('incidents.index');
-        
         Volt::route('/integrations', 'pages.integrations.index')->name('integrations.index');
-        
-         Volt::route('/docs', 'pages.docs.index')->name('docs.index');
-        
-        Volt::route('/billing', 'pages.billing.index')->name('billing.index');
-
+        Volt::route('/docs', 'pages.docs.index')->name('docs.index');
         Volt::route('/teams/{team}/notifications', 'pages.team.notifications')->name('team.notifications');
 
         Route::get('/monitors/{monitor}/sla-reports/{report}/download', DownloadMonitorSlaReportController::class)
@@ -95,67 +85,42 @@ Route::middleware(['auth', 'verified'])->group(function () {
 });
 
 // ============================================================================
-// BILLING ROUTES - With Paddle Customer Portal Integration
+// BILLING ROUTES - Laravel Cashier (Paddle) Integration
+// Following: https://laravel.com/docs/12.x/cashier-paddle
 // ============================================================================
 
-
 Route::middleware(['auth', 'verified'])->prefix('billing')->name('billing.')->group(function () {
+    
     // Main billing dashboard
-    Volt::route('/', 'pages.billing.index')->name('index');
-    Volt::route('/checkout.index', 'pages.billing.index')->name('checkout.index'); // Alias for backward compatibility
+    Route::get('/', [BillingController::class, 'index'])->name('index');
     
-    // Plan selection and checkout
-    Route::post('/checkout', [BillingController::class, 'checkout'])->name('checkout');
-    Volt::route('/checkout', 'pages.billing.checkout')->name('checkout.page');
-    Volt::route('/success', 'pages.billing.success')->name('success');
-     Volt::route('/invoices', 'pages.billing.invoices')->name('invoices');
-
-    // Subscription management - Redirects to Paddle Customer Portal
-    // This is the main route for managing subscriptions, payment methods, and billing preferences
-    // Route::get('/manage', [BillingController::class, 'manageSubscription'])->name('manage');
+    // Checkout
+    Route::get('/checkout', [CheckoutController::class, 'checkout'])->name('checkout');
+    Route::get('/checkout/success', [CheckoutController::class, 'success'])->name('success');
+    Route::get('/checkout/cancel', [CheckoutController::class, 'cancel'])->name('cancel');
     
+    // Paddle Customer Portal (for managing subscriptions, payment methods, invoices)
+    Route::get('/portal', [BillingController::class, 'portal'])->name('portal');
+    
+    // Subscription actions
+    Route::post('/cancel', [BillingController::class, 'cancel'])->name('cancel');
+    Route::post('/cancel-now', [BillingController::class, 'cancelNow'])->name('cancel.now');
+    Route::post('/resume', [BillingController::class, 'resume'])->name('resume');
+    Route::post('/swap', [BillingController::class, 'swap'])->name('swap');
+    Route::post('/pause', [BillingController::class, 'pause'])->name('pause');
+    Route::post('/unpause', [BillingController::class, 'unpause'])->name('unpause');
+    Route::post('/quantity', [BillingController::class, 'updateQuantity'])->name('quantity');
+    
+    // Invoices
+    Route::get('/invoices/{transaction}/download', [BillingController::class, 'downloadInvoice'])->name('invoices.download');
 });
 
-
-
-
-Route::middleware('auth')->get('/billing/portal', function (Request $request) {
-    $user = $request->user();
-
-    // Cashier customer creation
-    $customer = $user->customer ?? $user->createAsCustomer();
-
-    $baseUrl = config('billing.sandbox')
-        ? 'https://sandbox-api.paddle.com'
-        : 'https://api.paddle.com'; // Paddle base URLs :contentReference[oaicite:0]{index=0}
-
-    $endpoint = "{$baseUrl}/customers/{$customer->paddle_id}/portal-sessions"; // portal session endpoint :contentReference[oaicite:1]{index=1}
-$res = Http::withToken(config('cashier.api_key'))
-    ->acceptJson()
-    ->withHeaders(['Paddle-Version' => '1'])
-    ->send('POST', $endpoint);   // <-- no body
-    // no body required for homepage link :contentReference[oaicite:3]{index=3}
-
-    Log::error('Paddle portal session response', [
-        'endpoint' => $endpoint,
-        'status'   => $res->status(),
-        'body'     => $res->json(),
-    ]);
-
-    if (! $res->successful()) {
-        // Show details quickly while debugging
-        return response()->json([
-            'message' => 'Paddle portal session failed',
-            'status'  => $res->status(),
-            'body'    => $res->json(),
-        ], 502);
-    }
-
-    $portalUrl = data_get($res->json(), 'data.urls.general.overview'); // returned link :contentReference[oaicite:4]{index=4}
-    abort_unless($portalUrl, 502, 'Missing portal URL in Paddle response.');
-
-    return redirect()->away($portalUrl);
-})->name('billing.portal');
+// ============================================================================
+// PADDLE WEBHOOK
+// This route is automatically registered by Cashier at /paddle/webhook
+// But we can also manually define it if needed
+// ============================================================================
+// Route::post('/paddle/webhook', '\Laravel\Paddle\Http\Controllers\WebhookController');
 
 // ============================================================================
 // USER SETTINGS
@@ -164,13 +129,3 @@ $res = Http::withToken(config('cashier.api_key'))
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/timezone/update', [\App\Http\Controllers\TimezoneController::class, 'update'])->name('timezone.update');
 });
-
-// ============================================================================
-// WEBHOOKS (Outside auth middleware, CSRF disabled)
-// ============================================================================
-
-Route::post('/webhooks/paddle', PaddleWebhookController::class)->name('webhooks.paddle');
-
-
-
-

@@ -3,174 +3,236 @@
 namespace App\Http\Controllers\Billing;
 
 use App\Http\Controllers\Controller;
-use App\Services\Billing\BillingService;
-use App\Services\Billing\PaddleService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Main billing controller for subscription management
+ * Compatible with Laravel Cashier Paddle v2.6
+ */
 class BillingController extends Controller
 {
-    public function __construct(
-        private readonly BillingService $billingService,
-        private readonly PaddleService $paddleService,
-    ) {}
-
+    /**
+     * Display billing dashboard.
+     */
     public function index(Request $request)
     {
-        return view('livewire.pages.billing.index');
-    }
-
-    public function checkout(Request $request)
-    {
-        try {
-            $validated = $request->validate([
-                'plan' => 'required|in:free,pro,team',
-                'addons' => 'nullable|array',
-                'addons.*' => 'string',
-                'addon' => 'nullable|string',
-            ]);
-
-            $user = $request->user();
-            $plan = $validated['plan'];
-            
-            // 🔥 FIX: Use team as billable for team plans
-            $billable = $plan === 'team' ? $user->currentTeam : $user;
-            
-            // Validate that team exists for team plans
-            if ($plan === 'team' && !$billable) {
-                return back()->with('error', 'You must be part of a team to subscribe to the Team plan.');
-            }
-            
-            $addons = $validated['addons'] ?? [];
-            if (empty($addons) && !empty($validated['addon'])) {
-                $addons = [$validated['addon']];
-            }
-            $addons = array_filter($addons);
-
-            $checkout = $this->paddleService->createCheckoutSession(
-                billable: $billable,
-                plan: $plan,
-                addons: $addons,
-            );
-
-            if (!$checkout || ($checkout['id'] ?? null) === 'no_items') {
-                return back()->with('error', $checkout['message'] ?? 'Failed to create checkout.');
-            }
-
-            Log::info('Checkout initiated', [
-                'user_id' => $user->id,
-                'billable_type' => get_class($billable),
-                'billable_id' => $billable->id,
-                'plan' => $plan,
-                'addons' => $addons,
-            ]);
-
-            return redirect()->route('billing.checkout.page', [
-                'plan' => $plan,
-                'addons' => $addons,
-            ])->with('checkout', $checkout);
-            
-        } catch (\Exception $e) {
-            Log::error('Checkout error', ['error' => $e->getMessage()]);
-            return back()->with('error', 'An error occurred: ' . $e->getMessage());
-        }
-    }
-
-    public function checkoutPage(Request $request)
-    {
-        $checkout = $request->session()->get('checkout');
-        $plan = $request->get('plan', 'pro');
-        $addons = $request->get('addons', []);
+        $user = $request->user();
         
-        if (empty($addons) && $request->has('addon')) {
-            $addons = [$request->get('addon')];
-        }
-        $addons = array_filter($addons);
-
-        if (!$checkout) {
-            $user = $request->user();
-            
-            // 🔥 FIX: Use team as billable for team plans
-            $billable = $plan === 'team' ? $user->currentTeam : $user;
-            
-            // Validate that team exists for team plans
-            if ($plan === 'team' && !$billable) {
-                return redirect()->route('billing.index')
-                    ->with('error', 'You must be part of a team to subscribe to the Team plan.');
-            }
-            
-            $checkout = $this->paddleService->createCheckoutSession(
-                billable: $billable,
-                plan: $plan,
-                addons: $addons,
-            );
-
-            if (!$checkout || ($checkout['id'] ?? null) === 'no_items') {
-                return redirect()->route('billing.index')
-                    ->with('error', $checkout['message'] ?? 'Failed to create checkout.');
-            }
-        }
-
-        return view('livewire.pages.billing.checkout', [
-            'checkout' => $checkout,
-            'plan' => $plan,
-            'addons' => $addons,
+        return view('livewire.pages.billing.index', [
+            'user' => $user,
+            'subscription' => $user->subscription(),
+            'subscriptions' => $user->subscriptions,
+            'transactions' => $user->transactions()->latest()->paginate(10),
         ]);
     }
 
-    public function success(Request $request)
-    {
-        return view('livewire.pages.billing.success');
-    }
-
     /**
-     * Redirect to Paddle Customer Portal
+     * Redirect to Paddle customer portal.
+     * 
+     * Creates a portal session and redirects user to Paddle's hosted portal
+     * where they can manage their subscription, payment methods, and view invoices.
      */
-    public function manageSubscription(Request $request)
+    public function portal(Request $request)
     {
+        $user = $request->user();
+        
+        // Ensure user has a Paddle customer record
+        if (!$user->customer) {
+            $user->createAsCustomer();
+        }
+        
+        $customerId = $user->customer->paddle_id;
+        
+        // Determine API base URL
+        $baseUrl = config('services.paddle.sandbox', true)
+            ? 'https://sandbox-api.paddle.com'
+            : 'https://api.paddle.com';
+        
         try {
-            $user = $request->user();
+            // Create portal session using Paddle API
+            $response = Http::withToken(config('services.paddle.api_key'))
+                ->acceptJson()
+                ->withHeaders(['Paddle-Version' => '1'])
+                ->post("{$baseUrl}/customers/{$customerId}/portal-sessions");
             
-            // Determine if managing user or team subscription
-            $billable = $user;
-            
-            // If user has a team with a subscription, manage that instead
-            if ($user->currentTeam && $user->currentTeam->paddle_customer_id) {
-                $billable = $user->currentTeam;
+            if (!$response->successful()) {
+                Log::error('Paddle portal API error', [
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+                
+                throw new \Exception('Paddle API returned error: ' . $response->status());
             }
             
-            if (!$billable->paddle_customer_id) {
-                return back()->with('error', 'No subscription found. Please subscribe first.');
-            }
-
-            $portalUrl = $this->paddleService->generatePortalUrl($billable);
+            $data = $response->json();
+            
+            // Extract portal URL from response
+            $portalUrl = $data['data']['urls']['general']['overview'] ?? null;
             
             if (!$portalUrl) {
-                return back()->with('error', 'Unable to access portal. Contact support.');
+                Log::error('No portal URL in Paddle response', ['response' => $data]);
+                throw new \Exception('No portal URL in response');
             }
-
-            Log::info('Customer portal accessed', [
-                'user_id' => $user->id,
-                'billable_type' => get_class($billable),
-                'billable_id' => $billable->id,
-            ]);
-
+            
             return redirect()->away($portalUrl);
             
         } catch (\Exception $e) {
-            Log::error('Customer portal error', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+            Log::error('Paddle portal error', [
+                'message' => $e->getMessage(),
+                'customer_id' => $customerId,
             ]);
-            return back()->with('error', 'Error accessing portal. Contact support.');
+            
+            return redirect()->route('billing.index')
+                ->with('error', 'Unable to access customer portal. Please try again later.');
         }
     }
 
     /**
-     * Cancel - redirects to portal
+     * Cancel subscription (with grace period).
      */
     public function cancel(Request $request)
     {
-        return $this->manageSubscription($request);
+        $subscription = $request->user()->subscription();
+
+        if ($subscription && $subscription->active()) {
+            $subscription->cancel();
+
+            return redirect()->route('billing.index')
+                ->with('success', 'Subscription cancelled. You can continue using the service until the end of your billing period.');
+        }
+
+        return redirect()->route('billing.index')
+            ->with('error', 'No active subscription to cancel.');
+    }
+
+    /**
+     * Cancel subscription immediately.
+     */
+    public function cancelNow(Request $request)
+    {
+        $subscription = $request->user()->subscription();
+
+        if ($subscription && $subscription->active()) {
+            $subscription->cancelNow();
+
+            return redirect()->route('billing.index')
+                ->with('success', 'Subscription cancelled immediately.');
+        }
+
+        return redirect()->route('billing.index')
+            ->with('error', 'No active subscription to cancel.');
+    }
+
+    /**
+     * Resume a cancelled subscription.
+     */
+    public function resume(Request $request)
+    {
+        $subscription = $request->user()->subscription();
+
+        if ($subscription && $subscription->onGracePeriod()) {
+            $subscription->resume();
+
+            return redirect()->route('billing.index')
+                ->with('success', 'Subscription resumed successfully!');
+        }
+
+        return redirect()->route('billing.index')
+            ->with('error', 'Unable to resume subscription.');
+    }
+
+    /**
+     * Swap to a different plan/price.
+     */
+    public function swap(Request $request)
+    {
+        $request->validate([
+            'price_id' => 'required|string',
+        ]);
+
+        $subscription = $request->user()->subscription();
+
+        if ($subscription && $subscription->active()) {
+            $subscription->swap($request->input('price_id'));
+
+            return redirect()->route('billing.index')
+                ->with('success', 'Plan updated successfully!');
+        }
+
+        return redirect()->route('billing.index')
+            ->with('error', 'No active subscription to update.');
+    }
+
+    /**
+     * Update subscription quantity.
+     */
+    public function updateQuantity(Request $request)
+    {
+        $request->validate([
+            'quantity' => 'required|integer|min:1',
+        ]);
+
+        $subscription = $request->user()->subscription();
+
+        if ($subscription && $subscription->active()) {
+            $subscription->updateQuantity($request->input('quantity'));
+
+            return redirect()->route('billing.index')
+                ->with('success', 'Quantity updated successfully!');
+        }
+
+        return redirect()->route('billing.index')
+            ->with('error', 'No active subscription to update.');
+    }
+
+    /**
+     * Pause subscription.
+     */
+    public function pause(Request $request)
+    {
+        $subscription = $request->user()->subscription();
+
+        if ($subscription && $subscription->active() && !$subscription->paused()) {
+            $subscription->pause();
+
+            return redirect()->route('billing.index')
+                ->with('success', 'Subscription paused.');
+        }
+
+        return redirect()->route('billing.index')
+            ->with('error', 'Unable to pause subscription.');
+    }
+
+    /**
+     * Unpause subscription.
+     */
+    public function unpause(Request $request)
+    {
+        $subscription = $request->user()->subscription();
+
+        if ($subscription && $subscription->paused()) {
+            $subscription->unpause();
+
+            return redirect()->route('billing.index')
+                ->with('success', 'Subscription resumed.');
+        }
+
+        return redirect()->route('billing.index')
+            ->with('error', 'Subscription is not paused.');
+    }
+
+    /**
+     * Download invoice/receipt.
+     */
+    public function downloadInvoice(Request $request, $transactionId)
+    {
+        $transaction = $request->user()
+            ->transactions()
+            ->where('id', $transactionId)
+            ->firstOrFail();
+
+        return redirect($transaction->receipt_url);
     }
 }
