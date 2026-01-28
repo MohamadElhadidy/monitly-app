@@ -9,7 +9,19 @@ new
 class extends Component {
     public $selectedPlan = 'pro';
     public $selectedAddons = [];
-    public $billingInterval = 'monthly';
+
+    public function mount()
+    {
+        $this->selectedPlan = request()->get('plan', 'pro');
+        $addonParam = request()->get('addon');
+        
+        if ($addonParam) {
+            $this->selectedAddons = is_array($addonParam) ? $addonParam : [$addonParam];
+        } else {
+            $addonsParam = request()->get('addons', []);
+            $this->selectedAddons = is_array($addonsParam) ? $addonsParam : [];
+        }
+    }
 
     #[Computed]
     public function plans()
@@ -32,230 +44,108 @@ class extends Component {
     {
         return auth()->user()?->billing_plan ?? 'free';
     }
-
-    public function selectPlan($plan)
-    {
-        $this->selectedPlan = $plan;
-    }
-
-    public function toggleAddon($addonKey)
-    {
-        if (in_array($addonKey, $this->selectedAddons, true)) {
-            $this->selectedAddons = array_values(array_diff($this->selectedAddons, [$addonKey]));
-        } else {
-            $this->selectedAddons[] = $addonKey;
-        }
-    }
 }; ?>
 
 <div>
     <x-slot name="breadcrumbs">
-        <h2 class="text-2xl font-bold text-gray-900">Choose Your Plan</h2>
+        <h2 class="text-2xl font-bold text-gray-900">Checkout</h2>
     </x-slot>
 
-    <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+    <div class="mx-auto max-w-4xl px-4 sm:px-6 lg:px-8 py-8">
 
-        {{-- Current Plan Notice --}}
-        @if($this->currentUserPlan !== 'free')
-            <div class="mb-8 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <div class="flex items-center gap-2">
-                    <svg class="h-5 w-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <p class="text-sm text-blue-900">
-                        You're currently on the <strong>{{ ucfirst($this->currentUserPlan) }}</strong> plan.
-                        Upgrading will prorate your current subscription.
-                    </p>
+        <!-- Plan Summary -->
+        @php 
+            $plan = $this->plans()[$selectedPlan] ?? null;
+            $totalPrice = $plan ? $plan['price'] : 0;
+        @endphp
+
+        @if($plan)
+        <x-ui.card class="mb-8">
+            <h3 class="text-xl font-bold text-gray-900 mb-6">Order Summary</h3>
+            
+            <!-- Plan -->
+            <div class="flex items-center justify-between pb-4 border-b border-gray-200 mb-4">
+                <div>
+                    <h4 class="font-semibold text-gray-900">{{ $plan['name'] }} Plan</h4>
+                    <p class="text-sm text-gray-600">{{ $plan['description'] }}</p>
+                </div>
+                <div class="text-right">
+                    <span class="text-2xl font-bold text-gray-900">${{ $plan['price'] }}</span>
+                    <span class="text-sm text-gray-600">/month</span>
                 </div>
             </div>
-        @endif
 
-        {{-- Pricing Plans --}}
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
-
-            {{-- Free Plan --}}
-            <x-ui.card class="relative {{ $this->currentUserPlan === 'free' ? 'ring-2 ring-gray-300' : '' }}">
-                @if($this->currentUserPlan === 'free')
-                    <div class="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                        <x-ui.badge variant="default">Current Plan</x-ui.badge>
-                    </div>
-                @endif
-
-                <div class="text-center mb-6">
-                    <h3 class="text-2xl font-bold text-gray-900 mb-2">Free</h3>
-                    <div class="mb-4">
-                        <span class="text-4xl font-bold text-gray-900">$0</span>
-                        <span class="text-gray-600">/month</span>
-                    </div>
-                    <p class="text-sm text-gray-600">Perfect for trying out Monitly</p>
-                </div>
-
-                <ul class="space-y-3 mb-6">
-                    <li class="flex items-center gap-2 text-sm"><span>1 monitor</span></li>
-                    <li class="flex items-center gap-2 text-sm"><span>15-minute checks</span></li>
-                    <li class="flex items-center gap-2 text-sm"><span>Email alerts</span></li>
-                    <li class="flex items-center gap-2 text-sm"><span>7 days history</span></li>
-                </ul>
-
-                <x-ui.button class="w-full" variant="secondary" disabled>
-                    Current Plan
-                </x-ui.button>
-            </x-ui.card>
-
-            {{-- Pro Plan --}}
-            <x-ui.card class="relative {{ $selectedPlan === 'pro' ? 'ring-2 ring-emerald-500' : '' }}">
-                @if($this->currentUserPlan === 'pro')
-                    <div class="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                        <x-ui.badge variant="success">Current Plan</x-ui.badge>
-                    </div>
-                @else
-                    <div class="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                        <x-ui.badge variant="default">Popular</x-ui.badge>
-                    </div>
-                @endif
-
-                <div class="text-center mb-6">
-                    <h3 class="text-2xl font-bold text-gray-900 mb-2">Pro</h3>
-                    <div class="mb-4">
-                        <span class="text-4xl font-bold text-gray-900">$9</span>
-                        <span class="text-gray-600">/month</span>
-                    </div>
-                    <p class="text-sm text-gray-600">For serious monitoring</p>
-                </div>
-
-                <ul class="space-y-3 mb-6">
-                    <li class="flex items-center gap-2 text-sm"><span><strong>5 monitors</strong></span></li>
-                    <li class="flex items-center gap-2 text-sm"><span><strong>10-minute checks</strong></span></li>
-                    <li class="flex items-center gap-2 text-sm"><span>Email alerts</span></li>
-                    <li class="flex items-center gap-2 text-sm"><span><strong>Unlimited history</strong></span></li>
-                    <li class="flex items-center gap-2 text-sm"><span>Add-ons available</span></li>
-                </ul>
-
-                @if($this->currentUserPlan === 'pro')
-                    <x-ui.button class="w-full" variant="secondary" disabled>Current Plan</x-ui.button>
-                @else
-                    <x-ui.button
-                        wire:click="selectPlan('pro')"
-                        class="w-full paddle-checkout"
-                        data-plan="pro"
-                        variant="primary">
-                        {{ $this->currentUserPlan === 'free' ? 'Upgrade to Pro' : 'Switch to Pro' }}
-                    </x-ui.button>
-                @endif
-            </x-ui.card>
-
-            {{-- Team Plan --}}
-            <x-ui.card class="relative {{ $selectedPlan === 'team' ? 'ring-2 ring-emerald-500 shadow-xl' : '' }} border-2 border-emerald-600">
-                @if($this->currentUserPlan === 'team')
-                    <div class="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                        <x-ui.badge variant="success">Current Plan</x-ui.badge>
-                    </div>
-                @else
-                    <div class="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                        <x-ui.badge variant="success">Best Value</x-ui.badge>
-                    </div>
-                @endif
-
-                <div class="text-center mb-6">
-                    <h3 class="text-2xl font-bold text-gray-900 mb-2">Team</h3>
-                    <div class="mb-4">
-                        <span class="text-4xl font-bold text-gray-900">$29</span>
-                        <span class="text-gray-600">/month</span>
-                    </div>
-                    <p class="text-sm text-gray-600">For teams & businesses</p>
-                </div>
-
-                <ul class="space-y-3 mb-6">
-                    <li class="flex items-center gap-2 text-sm"><span><strong>20 monitors</strong></span></li>
-                    <li class="flex items-center gap-2 text-sm"><span><strong>10-minute checks</strong></span></li>
-                    <li class="flex items-center gap-2 text-sm"><span><strong>5 team members</strong></span></li>
-                    <li class="flex items-center gap-2 text-sm"><span><strong>Slack & Webhooks</strong></span></li>
-                    <li class="flex items-center gap-2 text-sm"><span>Unlimited history</span></li>
-                    <li class="flex items-center gap-2 text-sm"><span>Priority support</span></li>
-                </ul>
-
-                @if($this->currentUserPlan === 'team')
-                    <x-ui.button class="w-full" variant="secondary" disabled>Current Plan</x-ui.button>
-                @else
-                    <x-ui.button
-                        wire:click="selectPlan('team')"
-                        class="w-full paddle-checkout"
-                        data-plan="team"
-                        variant="primary">
-                        Upgrade to Team
-                    </x-ui.button>
-                @endif
-            </x-ui.card>
-        </div>
-
-        {{-- Add-ons --}}
-        <div class="mt-12">
-            <div class="text-center mb-8">
-                <h3 class="text-2xl font-bold text-gray-900 mb-2">Power Up With Add-ons</h3>
-                <p class="text-gray-600">Extend your plan's capabilities with optional add-ons</p>
-            </div>
-
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                @foreach($this->addons as $key => $addon)
+            <!-- Selected Add-ons -->
+            @if(!empty($selectedAddons))
+                @foreach($selectedAddons as $addonKey)
                     @php
-                        $isAllowed = true;
-                        if (isset($addon['allowed_plans'])) {
-                            // Usually you want allowed based on selected plan, not current plan.
-                            $isAllowed = in_array($selectedPlan, $addon['allowed_plans'], true);
+                        $addon = $this->addons()[$addonKey] ?? null;
+                        if ($addon) {
+                            $totalPrice += $addon['price'];
                         }
                     @endphp
-
-                    @if($isAllowed)
-                        <x-ui.card
-                            class="hover:shadow-lg transition cursor-pointer {{ in_array($key, $selectedAddons, true) ? 'ring-2 ring-emerald-500' : '' }}"
-                            wire:click="toggleAddon('{{ $key }}')">
-                            <div class="flex items-start justify-between mb-4">
-                                <div class="flex-1">
-                                    <h4 class="text-lg font-semibold text-gray-900 mb-1">{{ $addon['name'] }}</h4>
-                                    <p class="text-sm text-gray-600 mb-3">{{ $addon['description'] }}</p>
-                                    <div class="flex items-baseline gap-1">
-                                        <span class="text-2xl font-bold text-gray-900">${{ $addon['price'] }}</span>
-                                        <span class="text-sm text-gray-600">/month</span>
-                                    </div>
-                                </div>
-
-                                <input type="checkbox"
-                                       class="h-5 w-5 text-emerald-600 rounded focus:ring-emerald-500"
-                                       wire:model="selectedAddons"
-                                       value="{{ $key }}"
-                                       id="addon-{{ $key }}">
-                            </div>
-
-                            @if(isset($addon['pack_size']))
-                                <div class="pt-3 border-t border-gray-200">
-                                    <p class="text-xs text-gray-500">Adds {{ $addon['pack_size'] }} units to your plan</p>
-                                </div>
-                            @endif
-                        </x-ui.card>
+                    @if($addon)
+                    <div class="flex items-center justify-between py-3 border-b border-gray-100">
+                        <div>
+                            <h4 class="font-medium text-gray-900">{{ $addon['name'] }}</h4>
+                            <p class="text-sm text-gray-600">{{ $addon['description'] }}</p>
+                        </div>
+                        <div class="text-right">
+                            <span class="text-lg font-semibold text-gray-900">${{ $addon['price'] }}</span>
+                            <span class="text-sm text-gray-600">/month</span>
+                        </div>
+                    </div>
                     @endif
                 @endforeach
+            @endif
+
+            <!-- Total -->
+            <div class="flex items-center justify-between pt-4 mt-4 border-t-2 border-gray-200">
+                <span class="text-lg font-bold text-gray-900">Total</span>
+                <div class="text-right">
+                    <span class="text-3xl font-bold text-gray-900">${{ $totalPrice }}</span>
+                    <span class="text-sm text-gray-600">/month</span>
+                </div>
             </div>
+        </x-ui.card>
+
+        <!-- Checkout Button -->
+        <div class="text-center mb-8">
+            <button 
+                class="paddle-checkout inline-flex items-center px-8 py-4 border border-transparent text-lg font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 transition"
+                data-plan="{{ $selectedPlan }}">
+                <svg class="h-6 w-6 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+                Proceed to Secure Checkout
+            </button>
+            <p class="mt-3 text-sm text-gray-500">
+                Secured by Paddle • Cancel anytime
+            </p>
         </div>
 
-        {{-- FAQ --}}
-        <div class="mt-16 max-w-3xl mx-auto">
-            <h3 class="text-2xl font-bold text-gray-900 mb-6 text-center">Frequently Asked Questions</h3>
-            <div class="space-y-4">
-                <x-ui.card>
-                    <h4 class="font-semibold text-gray-900 mb-2">Can I change plans later?</h4>
-                    <p class="text-sm text-gray-600">Yes! You can upgrade or downgrade anytime. Changes are prorated automatically.</p>
-                </x-ui.card>
-                <x-ui.card>
-                    <h4 class="font-semibold text-gray-900 mb-2">What payment methods do you accept?</h4>
-                    <p class="text-sm text-gray-600">We accept all major credit cards, PayPal, and various local payment methods through Paddle.</p>
-                </x-ui.card>
-                <x-ui.card>
-                    <h4 class="font-semibold text-gray-900 mb-2">Is there a refund policy?</h4>
-                    <p class="text-sm text-gray-600">Yes! We offer a 30-day money-back guarantee on all paid plans.</p>
-                </x-ui.card>
+        <!-- Security & Trust -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 text-center">
+            <div class="flex flex-col items-center">
+                <svg class="h-8 w-8 text-emerald-600 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+                <span class="text-sm font-medium text-gray-900">Secure Payment</span>
+            </div>
+            <div class="flex flex-col items-center">
+                <svg class="h-8 w-8 text-emerald-600 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span class="text-sm font-medium text-gray-900">30-Day Guarantee</span>
+            </div>
+            <div class="flex flex-col items-center">
+                <svg class="h-8 w-8 text-emerald-600 mb-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+                <span class="text-sm font-medium text-gray-900">Instant Activation</span>
             </div>
         </div>
+        @endif
 
     </div>
 
@@ -272,7 +162,7 @@ class extends Component {
                         return;
                     }
 
-                    const token = @json(config('billing.paddle_customer_token')); // MUST be a client-side token
+                    const token = @json(config('billing.paddle_customer_token'));
                     if (!token) {
                         console.error('Paddle client-side token is missing (billing.paddle_customer_token).');
                         return;
@@ -299,6 +189,20 @@ class extends Component {
                     return map[plan] || null;
                 }
 
+                function getAddonPriceIds(addonKeys) {
+                    const addonMap = @json(array_map(function($addon) { 
+                        return $addon['price_ids'][0] ?? null; 
+                    }, config('billing.addons')));
+                    
+                    const priceIds = [];
+                    addonKeys.forEach(key => {
+                        if (addonMap[key]) {
+                            priceIds.push(addonMap[key]);
+                        }
+                    });
+                    return priceIds;
+                }
+
                 function openCheckout(plan) {
                     initPaddleOnce();
                     if (!paddleReady) return;
@@ -309,14 +213,39 @@ class extends Component {
                         return;
                     }
 
+                    // Build items array (plan + addons)
+                    const items = [{ priceId, quantity: 1 }];
+                    
+                    const selectedAddons = @json($selectedAddons);
+                    const addonPriceIds = getAddonPriceIds(selectedAddons);
+                    addonPriceIds.forEach(addonPriceId => {
+                        items.push({ priceId: addonPriceId, quantity: 1 });
+                    });
+
+                    @php
+                        $user = auth()->user();
+                        $currentTeam = $user->currentTeam;
+                    @endphp
+
+                    // Determine owner based on plan
+                    const ownerType = plan === 'team' ? 'team' : 'user';
+                    const ownerId = plan === 'team' ? @json($currentTeam?->id ?? $user->id) : @json($user->id);
+
+                    console.log('Opening Paddle checkout:', {
+                        plan,
+                        ownerType,
+                        ownerId,
+                        items
+                    });
+
                     Paddle.Checkout.open({
-                        items: [{ priceId, quantity: 1 }],
-                        customer: { email: @json(auth()->user()->email) },
+                        items: items,
+                        customer: { email: @json($user->email) },
                         customData: {
-                            owner_type: 'user',
-                            owner_id: @json(auth()->id()),
+                            owner_type: ownerType,
+                            owner_id: ownerId,
                             plan: plan,
-                            addons: @json($selectedAddons),
+                            addons: selectedAddons,
                         },
                         settings: {
                             successUrl: @json(route('billing.success')),

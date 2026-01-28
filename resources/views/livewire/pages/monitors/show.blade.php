@@ -9,6 +9,7 @@ new
 #[Layout('layouts.app')]
 class extends Component {
     public Monitor $monitor;
+    public string $activeTab = 'overview'; // overview, checks, incidents, history
     
     public function mount(Monitor $monitor)
     {
@@ -28,7 +29,7 @@ class extends Component {
     {
         return $this->monitor->checks()
             ->latest('checked_at')
-            ->limit(20)
+            ->limit(50)
             ->get();
     }
     
@@ -37,8 +38,42 @@ class extends Component {
     {
         return $this->monitor->incidents()
             ->latest('started_at')
-            ->limit(10)
+            ->limit(30)
             ->get();
+    }
+
+    #[Computed]
+    public function uptimeHistory()
+    {
+        // Get uptime by day for last 30 days
+        $history = [];
+        for ($i = 29; $i >= 0; $i--) {
+            $date = now()->subDays($i);
+            $dayStart = $date->copy()->startOfDay();
+            $dayEnd = $date->copy()->endOfDay();
+            
+            // Get total checks for the day
+            $totalChecks = $this->monitor->checks()
+                ->whereBetween('checked_at', [$dayStart, $dayEnd])
+                ->count();
+            
+            // Get successful checks
+            $successfulChecks = $this->monitor->checks()
+                ->whereBetween('checked_at', [$dayStart, $dayEnd])
+                ->where('ok', true)
+                ->count();
+            
+            $uptime = $totalChecks > 0 ? ($successfulChecks / $totalChecks) * 100 : 100;
+            
+            $history[] = [
+                'date' => $date->format('M j'),
+                'uptime' => round($uptime, 2),
+                'checks' => $totalChecks,
+                'successful' => $successfulChecks,
+            ];
+        }
+        
+        return $history;
     }
     
     public function togglePause()
@@ -56,6 +91,11 @@ class extends Component {
                 ? 'Monitor paused successfully' 
                 : 'Monitor resumed successfully'
         );
+    }
+
+    public function setTab($tab)
+    {
+        $this->activeTab = $tab;
     }
 }; ?>
 
@@ -168,167 +208,244 @@ class extends Component {
             </x-ui.stat-card>
         </div>
 
-        <!-- Monitor Details -->
-        <x-ui.card class="mb-8">
-            <h3 class="text-lg font-semibold text-gray-900 mb-4">Monitor Details</h3>
-            <dl class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                    <dt class="text-sm font-medium text-gray-500 mb-1">URL</dt>
-                    <dd class="text-sm text-gray-900 break-all">
-                        <a href="{{ $monitor->url }}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 hover:underline">
-                            {{ $monitor->url }}
-                            <svg class="inline h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                            </svg>
-                        </a>
-                    </dd>
-                </div>
-                <div>
-                    <dt class="text-sm font-medium text-gray-500 mb-1">Created</dt>
-                    <dd class="text-sm text-gray-900">{{ $monitor->created_at->format('M j, Y g:i A') }}</dd>
-                </div>
-                <div>
-                    <dt class="text-sm font-medium text-gray-500 mb-1">Last Check</dt>
-                    <dd class="text-sm text-gray-900">
-                        {{ $monitor->updated_at ? $monitor->updated_at->diffForHumans() : 'Never' }}
-                    </dd>
-                </div>
-                <div>
-                    <dt class="text-sm font-medium text-gray-500 mb-1">Next Check</dt>
-                    <dd class="text-sm text-gray-900">
-                        @if($monitor->paused)
-                        <span class="text-gray-400">Paused</span>
-                        @else
-                        {{ $monitor->next_check_at ? $monitor->next_check_at->diffForHumans() : 'Pending' }}
-                        @endif
-                    </dd>
-                </div>
-                <div>
-                    <dt class="text-sm font-medium text-gray-500 mb-1">Email Alerts</dt>
-                    <dd class="text-sm text-gray-900">
-                        @if($monitor->email_alerts_enabled)
-                        <x-ui.badge variant="success" size="sm">Enabled</x-ui.badge>
-                        @else
-                        <x-ui.badge variant="secondary" size="sm">Disabled</x-ui.badge>
-                        @endif
-                    </dd>
-                </div>
-                <div>
-                    <dt class="text-sm font-medium text-gray-500 mb-1">Public Status</dt>
-                    <dd class="text-sm text-gray-900">
-                        @if($monitor->is_public)
-                        <x-ui.badge variant="success" size="sm">Visible</x-ui.badge>
-                        @else
-                        <x-ui.badge variant="secondary" size="sm">Private</x-ui.badge>
-                        @endif
-                    </dd>
-                </div>
-            </dl>
-        </x-ui.card>
+        <!-- Tabs -->
+        <div class="mb-6 border-b border-gray-200">
+            <nav class="-mb-px flex space-x-8">
+                <button 
+                    wire:click="setTab('overview')"
+                    class="{{ $activeTab === 'overview' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300' }} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors"
+                >
+                    Overview
+                </button>
+                <button 
+                    wire:click="setTab('checks')"
+                    class="{{ $activeTab === 'checks' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300' }} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors"
+                >
+                    Recent Checks ({{ $this->recentChecks()->count() }})
+                </button>
+                <button 
+                    wire:click="setTab('incidents')"
+                    class="{{ $activeTab === 'incidents' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300' }} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors"
+                >
+                    Incidents ({{ $this->recentIncidents()->count() }})
+                </button>
+                <button 
+                    wire:click="setTab('history')"
+                    class="{{ $activeTab === 'history' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300' }} whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors"
+                >
+                    30-Day History
+                </button>
+            </nav>
+        </div>
 
-        <!-- Recent Checks -->
-        <x-ui.card class="mb-8">
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-semibold text-gray-900">Recent Checks</h3>
-                <span class="text-sm text-gray-500">Last 20 checks</span>
-            </div>
-            
-            @if($this->recentChecks->count() > 0)
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200">
-                    <thead class="bg-gray-50">
-                        <tr>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Time
-                            </th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Status
-                            </th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Response Time
-                            </th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Status Code
-                            </th>
-                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                Error
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
-                        @foreach($this->recentChecks as $check)
-                        <tr>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                {{ $check->checked_at->format('M j, g:i A') }}
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <x-ui.badge :variant="$check->ok ? 'success' : 'danger'" size="sm">
-                                    {{ $check->ok ? 'Up' : 'Down' }}
-                                </x-ui.badge>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                {{ $check->response_time_ms ? $check->response_time_ms . 'ms' : 'N/A' }}
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                {{ $check->status_code ?? 'N/A' }}
-                            </td>
-                            <td class="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
-                                {{ $check->error_message ?? '-' }}
-                            </td>
-                        </tr>
-                        @endforeach
-                    </tbody>
-                </table>
-            </div>
-            @else
-            <p class="text-sm text-gray-500 text-center py-8">No checks yet. Monitoring will start shortly.</p>
-            @endif
-        </x-ui.card>
+        <!-- Tab Content -->
+        @if($activeTab === 'overview')
+            <!-- Monitor Details -->
+            <x-ui.card class="mb-8">
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">Monitor Details</h3>
+                <dl class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500 mb-1">URL</dt>
+                        <dd class="text-sm text-gray-900 break-all">
+                            <a href="{{ $monitor->url }}" target="_blank" rel="noopener noreferrer" class="text-blue-600 hover:text-blue-800 hover:underline">
+                                {{ $monitor->url }}
+                                <svg class="inline h-4 w-4 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                                </svg>
+                            </a>
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500 mb-1">Created</dt>
+                        <dd class="text-sm text-gray-900">{{ $monitor->created_at->format('M j, Y g:i A') }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500 mb-1">Last Check</dt>
+                        <dd class="text-sm text-gray-900">
+                            {{ $monitor->updated_at ? $monitor->updated_at->diffForHumans() : 'Never' }}
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500 mb-1">Next Check</dt>
+                        <dd class="text-sm text-gray-900">
+                            @if($monitor->paused)
+                            <span class="text-gray-400">Paused</span>
+                            @else
+                            {{ $monitor->next_check_at ? $monitor->next_check_at->diffForHumans() : 'Pending' }}
+                            @endif
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500 mb-1">Email Alerts</dt>
+                        <dd class="text-sm text-gray-900">
+                            @if($monitor->email_alerts_enabled)
+                            <x-ui.badge variant="success" size="sm">Enabled</x-ui.badge>
+                            @else
+                            <x-ui.badge variant="secondary" size="sm">Disabled</x-ui.badge>
+                            @endif
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500 mb-1">Public Status</dt>
+                        <dd class="text-sm text-gray-900">
+                            @if($monitor->is_public)
+                            <x-ui.badge variant="success" size="sm">Visible</x-ui.badge>
+                            @else
+                            <x-ui.badge variant="secondary" size="sm">Private</x-ui.badge>
+                            @endif
+                        </dd>
+                    </div>
+                </dl>
+            </x-ui.card>
+        @endif
 
-        <!-- Recent Incidents -->
-        @if($this->recentIncidents->count() > 0)
-        <x-ui.card>
-            <div class="flex items-center justify-between mb-4">
-                <h3 class="text-lg font-semibold text-gray-900">Recent Incidents</h3>
-                <span class="text-sm text-gray-500">Last 10 incidents</span>
-            </div>
-            
-            <div class="space-y-4">
-                @foreach($this->recentIncidents as $incident)
-                <div class="border border-gray-200 rounded-lg p-4">
-                    <div class="flex items-start justify-between">
-                        <div class="flex-1">
-                            <div class="flex items-center gap-2 mb-2">
-                                @if($incident->recovered_at)
-                                <x-ui.badge variant="secondary" size="sm">Recovered</x-ui.badge>
-                                @else
-                                <x-ui.badge variant="danger" size="sm">Ongoing</x-ui.badge>
+        @if($activeTab === 'checks')
+            <!-- Recent Checks -->
+            <x-ui.card>
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-gray-900">Recent Checks</h3>
+                    <span class="text-sm text-gray-500">Last 50 checks</span>
+                </div>
+                
+                @if($this->recentChecks()->count() > 0)
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Time
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Status
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Response Time
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Status Code
+                                </th>
+                                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                    Error
+                                </th>
+                            </tr>
+                        </thead>
+                        <tbody class="bg-white divide-y divide-gray-200">
+                            @foreach($this->recentChecks() as $check)
+                            <tr>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {{ $check->checked_at->format('M j, H:i') }}
+                                    <span class="text-xs text-gray-500 block">{{ $check->checked_at->diffForHumans() }}</span>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <x-ui.badge :variant="$check->ok ? 'success' : 'danger'" size="sm">
+                                        {{ $check->ok ? 'Up' : 'Down' }}
+                                    </x-ui.badge>
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {{ $check->response_time_ms ? $check->response_time_ms . 'ms' : 'N/A' }}
+                                </td>
+                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    {{ $check->status_code ?? 'N/A' }}
+                                </td>
+                                <td class="px-6 py-4 text-sm text-gray-500 max-w-xs truncate">
+                                    {{ $check->error_message ?? '-' }}
+                                </td>
+                            </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+                @else
+                <p class="text-sm text-gray-500 text-center py-8">No checks yet. Monitoring will start shortly.</p>
+                @endif
+            </x-ui.card>
+        @endif
+
+        @if($activeTab === 'incidents')
+            <!-- Recent Incidents -->
+            <x-ui.card>
+                <div class="flex items-center justify-between mb-4">
+                    <h3 class="text-lg font-semibold text-gray-900">Recent Incidents</h3>
+                    <span class="text-sm text-gray-500">Last 30 incidents</span>
+                </div>
+                
+                @if($this->recentIncidents()->count() > 0)
+                <div class="space-y-4">
+                    @foreach($this->recentIncidents() as $incident)
+                    <div class="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+                        <div class="flex items-start justify-between">
+                            <div class="flex-1">
+                                <div class="flex items-center gap-2 mb-2">
+                                    @if($incident->recovered_at)
+                                    <x-ui.badge variant="secondary" size="sm">Recovered</x-ui.badge>
+                                    @else
+                                    <x-ui.badge variant="danger" size="sm">Ongoing</x-ui.badge>
+                                    @endif
+                                    <span class="text-sm text-gray-600">
+                                        Started {{ $incident->started_at->format('M j, H:i') }}
+                                    </span>
+                                </div>
+                                
+                                @if($incident->cause_summary)
+                                <p class="text-sm text-gray-700 mb-2">{{ $incident->cause_summary }}</p>
                                 @endif
-                                <span class="text-sm text-gray-600">
-                                    Started {{ $incident->started_at->format('M j, Y g:i A') }}
-                                </span>
+                                
+                                @if($incident->recovered_at)
+                                <div class="flex items-center gap-4 text-xs text-gray-500">
+                                    <span>
+                                        Recovered: {{ $incident->recovered_at->format('M j, H:i') }}
+                                    </span>
+                                    <span>
+                                        Duration: {{ gmdate('H:i:s', $incident->downtime_seconds) }}
+                                    </span>
+                                </div>
+                                @endif
                             </div>
-                            
-                            @if($incident->last_error_message)
-                            <p class="text-sm text-gray-700 mb-2">{{ $incident->last_error_message }}</p>
-                            @endif
-                            
-                            @if($incident->recovered_at)
-                            <div class="flex items-center gap-4 text-xs text-gray-500">
-                                <span>
-                                    Recovered: {{ $incident->recovered_at->format('M j, Y g:i A') }}
-                                </span>
-                                <span>
-                                    Duration: {{ $incident->started_at->diffForHumans($incident->recovered_at, true) }}
-                                </span>
-                            </div>
-                            @endif
                         </div>
                     </div>
+                    @endforeach
                 </div>
-                @endforeach
-            </div>
-        </x-ui.card>
+                @else
+                <p class="text-sm text-gray-500 text-center py-8">No incidents recorded. Great job!</p>
+                @endif
+            </x-ui.card>
+        @endif
+
+        @if($activeTab === 'history')
+            <!-- 30-Day History -->
+            <x-ui.card>
+                <h3 class="text-lg font-semibold text-gray-900 mb-4">30-Day Uptime History</h3>
+                
+                <div class="space-y-3">
+                    @foreach($this->uptimeHistory() as $day)
+                    <div class="flex items-center gap-4">
+                        <div class="w-16 text-sm text-gray-600">
+                            {{ $day['date'] }}
+                        </div>
+                        <div class="flex-1">
+                            <div class="flex items-center gap-2">
+                                <div class="flex-1 bg-gray-200 rounded-full h-6">
+                                    <div 
+                                        class="h-6 rounded-full transition-all {{ $day['uptime'] >= 99 ? 'bg-emerald-500' : ($day['uptime'] >= 95 ? 'bg-yellow-500' : 'bg-red-500') }}" 
+                                        style="width: {{ $day['uptime'] }}%"
+                                    ></div>
+                                </div>
+                                <span class="w-16 text-sm font-medium text-gray-900">
+                                    {{ number_format($day['uptime'], 1) }}%
+                                </span>
+                            </div>
+                        </div>
+                        <div class="w-24 text-xs text-gray-500 text-right">
+                            {{ $day['successful'] }}/{{ $day['checks'] }} checks
+                        </div>
+                    </div>
+                    @endforeach
+                </div>
+
+                @if(count($this->uptimeHistory()) === 0)
+                <p class="text-sm text-gray-500 text-center py-8">No history data available yet.</p>
+                @endif
+            </x-ui.card>
         @endif
     </div>
 </div>

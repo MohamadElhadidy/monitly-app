@@ -67,6 +67,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         Volt::route('/sla', 'pages.sla.overview')->name('sla.overview');
 
+        Volt::route('/incidents', 'pages.incidents.index')->name('incidents.index');
+        
+        Volt::route('/integrations', 'pages.integrations.index')->name('integrations.index');
+        
+         Volt::route('/docs', 'pages.docs.index')->name('docs.index');
+        
         Volt::route('/billing', 'pages.billing.index')->name('billing.index');
 
         Volt::route('/teams/{team}/notifications', 'pages.team.notifications')->name('team.notifications');
@@ -99,22 +105,14 @@ Route::middleware(['auth', 'verified'])->prefix('billing')->name('billing.')->gr
     Volt::route('/checkout.index', 'pages.billing.index')->name('checkout.index'); // Alias for backward compatibility
     
     // Plan selection and checkout
-    Volt::route('/plans', 'pages.billing.plans')->name('plans');
     Route::post('/checkout', [BillingController::class, 'checkout'])->name('checkout');
     Volt::route('/checkout', 'pages.billing.checkout')->name('checkout.page');
     Volt::route('/success', 'pages.billing.success')->name('success');
     
-    // Invoice management
-    Volt::route('/invoices', 'pages.billing.invoices')->name('invoices');
-    Route::get('/invoices/{id}/download', [BillingController::class, 'downloadInvoice'])->name('invoice.download');
-    
+
     // Subscription management - Redirects to Paddle Customer Portal
     // This is the main route for managing subscriptions, payment methods, and billing preferences
-    Route::get('/manage', [BillingController::class, 'manageSubscription'])->name('manage');
-    
-    // Legacy routes - now redirect to customer portal for seamless experience
-    Route::post('/cancel', [BillingController::class, 'cancel'])->name('cancel');
-    Route::post('/payment-method/update', [BillingController::class, 'updatePaymentMethod'])->name('payment-method.update');
+    // Route::get('/manage', [BillingController::class, 'manageSubscription'])->name('manage');
     
 });
 

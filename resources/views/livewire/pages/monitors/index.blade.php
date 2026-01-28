@@ -2,7 +2,6 @@
 use Livewire\Volt\Component;
 use App\Models\Monitor;
 use App\Services\Billing\PlanLimits;
-use App\Helpers\TimezoneHelper;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Computed;
 
@@ -156,73 +155,37 @@ class extends Component {
             </x-ui.stat-card>
         </div>
 
-        <!-- Plan Usage Notice -->
-        @if($this->stats['total'] >= $this->stats['limit'])
-        <x-ui.alert variant="warning" class="mb-6">
-            <div class="flex items-start gap-3">
-                <svg class="h-5 w-5 text-yellow-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
-                </svg>
-                <div class="flex-1">
-                    <h3 class="text-sm font-semibold text-yellow-800">Monitor Limit Reached</h3>
-                    <p class="text-sm text-yellow-700 mt-1">
-                        You've reached your {{ $this->stats['plan'] }} plan limit of {{ $this->stats['limit'] }} monitors.
-                        <a href="{{ route('billing.index') }}" class="font-medium underline hover:no-underline">
-                            Upgrade your plan or purchase additional monitors
-                        </a>
-                    </p>
-                </div>
-            </div>
-        </x-ui.alert>
-        @endif
-        
-        <!-- User Timezone Info -->
-        <div class="mb-6 text-sm text-gray-600">
-            All times shown in your timezone: <strong>{{ TimezoneHelper::getUserTimezone() }}</strong> 
-            ({{ TimezoneHelper::getShortTimezone() }})
-            <a href="{{ route('profile.show') }}" class="text-blue-600 hover:text-blue-800 ml-2">Change timezone</a>
-        </div>
-
-        <!-- Filters -->
-        @if($this->monitors->count() > 0 || $statusFilter !== 'all')
-        <div class="mb-6 flex items-center gap-2 flex-wrap">
-            <span class="text-sm font-medium text-gray-700">Filter:</span>
+        <!-- Filter Tabs -->
+        <div class="flex gap-2 mb-6">
             <button 
                 wire:click="$set('statusFilter', 'all')"
-                class="px-3 py-1 text-sm rounded-lg transition-colors {{ $statusFilter === 'all' ? 'bg-blue-100 text-blue-700 font-medium' : 'text-gray-600 hover:bg-gray-100' }}"
+                class="{{ $statusFilter === 'all' ? 'bg-blue-100 text-blue-700 font-semibold' : 'bg-white text-gray-700 hover:bg-gray-50' }} px-4 py-2 rounded-lg border border-gray-200 text-sm transition-colors"
             >
-                All ({{ $this->stats['total'] }})
+                All
             </button>
             <button 
                 wire:click="$set('statusFilter', 'up')"
-                class="px-3 py-1 text-sm rounded-lg transition-colors {{ $statusFilter === 'up' ? 'bg-emerald-100 text-emerald-700 font-medium' : 'text-gray-600 hover:bg-gray-100' }}"
+                class="{{ $statusFilter === 'up' ? 'bg-emerald-100 text-emerald-700 font-semibold' : 'bg-white text-gray-700 hover:bg-gray-50' }} px-4 py-2 rounded-lg border border-gray-200 text-sm transition-colors"
             >
                 Up ({{ $this->stats['up'] }})
             </button>
             <button 
                 wire:click="$set('statusFilter', 'down')"
-                class="px-3 py-1 text-sm rounded-lg transition-colors {{ $statusFilter === 'down' ? 'bg-red-100 text-red-700 font-medium' : 'text-gray-600 hover:bg-gray-100' }}"
+                class="{{ $statusFilter === 'down' ? 'bg-red-100 text-red-700 font-semibold' : 'bg-white text-gray-700 hover:bg-gray-50' }} px-4 py-2 rounded-lg border border-gray-200 text-sm transition-colors"
             >
                 Down ({{ $this->stats['down'] }})
             </button>
             <button 
                 wire:click="$set('statusFilter', 'paused')"
-                class="px-3 py-1 text-sm rounded-lg transition-colors {{ $statusFilter === 'paused' ? 'bg-gray-100 text-gray-700 font-medium' : 'text-gray-600 hover:bg-gray-100' }}"
+                class="{{ $statusFilter === 'paused' ? 'bg-gray-200 text-gray-700 font-semibold' : 'bg-white text-gray-700 hover:bg-gray-50' }} px-4 py-2 rounded-lg border border-gray-200 text-sm transition-colors"
             >
                 Paused ({{ $this->stats['paused'] }})
             </button>
-            <button 
-                wire:click="$set('statusFilter', 'unknown')"
-                class="px-3 py-1 text-sm rounded-lg transition-colors {{ $statusFilter === 'unknown' ? 'bg-gray-100 text-gray-700 font-medium' : 'text-gray-600 hover:bg-gray-100' }}"
-            >
-                Unknown
-            </button>
         </div>
-        @endif
 
         <!-- Monitors Table -->
         @if($this->monitors->count() > 0)
-        <x-ui.card>
+        <x-ui.card class="overflow-hidden">
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
@@ -302,20 +265,28 @@ class extends Component {
                                 @endif
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="text-sm text-gray-900">
-                                    {{ TimezoneHelper::diffForHumans($monitor->updated_at) }}
+                                @php
+                                    // Use last_checked_at if available
+                                    $lastCheck = $monitor->last_checked_at ?? ($monitor->last_status !== 'unknown' ? $monitor->updated_at : null);
+                                @endphp
+                                @if($lastCheck)
+                                <div class="text-sm font-medium text-gray-900" data-timestamp="{{ $lastCheck->timestamp }}" data-type="relative">
+                                    {{ $lastCheck->diffForHumans() }}
                                 </div>
-                                <div class="text-xs text-gray-500">
-                                    {{ TimezoneHelper::toUserTimezone($monitor->updated_at, 'M j, g:i A') }}
+                                <div class="text-xs text-gray-500" data-timestamp="{{ $lastCheck->timestamp }}" data-type="full">
+                                    {{ $lastCheck->format('M j, H:i') }}
                                 </div>
+                                @else
+                                <span class="text-sm text-gray-400">Not checked yet</span>
+                                @endif
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
                                 @if(!$monitor->paused && $monitor->next_check_at)
-                                <div class="text-sm text-gray-900">
-                                    {{ TimezoneHelper::diffForHumans($monitor->next_check_at) }}
+                                <div class="text-sm font-medium text-gray-900" data-timestamp="{{ $monitor->next_check_at->timestamp }}" data-type="relative">
+                                    {{ $monitor->next_check_at->diffForHumans() }}
                                 </div>
-                                <div class="text-xs text-gray-500">
-                                    {{ TimezoneHelper::toUserTimezone($monitor->next_check_at, 'M j, g:i A') }}
+                                <div class="text-xs text-gray-500" data-timestamp="{{ $monitor->next_check_at->timestamp }}" data-type="full">
+                                    {{ $monitor->next_check_at->format('M j, H:i') }}
                                 </div>
                                 @else
                                 <span class="text-sm text-gray-400">—</span>
@@ -383,4 +354,75 @@ class extends Component {
         </x-ui.empty-state>
         @endif
     </div>
+
+    @push('scripts')
+    <script>
+        // Convert all UTC timestamps to user's local timezone
+        document.addEventListener('DOMContentLoaded', function() {
+            convertTimestamps();
+        });
+
+        // Also run after Livewire updates
+        document.addEventListener('livewire:navigated', function() {
+            convertTimestamps();
+        });
+
+        if (window.Livewire) {
+            Livewire.hook('message.processed', (message, component) => {
+                convertTimestamps();
+            });
+        }
+
+        function convertTimestamps() {
+            // Find all elements with timestamp data
+            document.querySelectorAll('[data-timestamp]').forEach(function(el) {
+                const timestamp = parseInt(el.getAttribute('data-timestamp'));
+                const type = el.getAttribute('data-type');
+                
+                if (!timestamp) return;
+                
+                const date = new Date(timestamp * 1000);
+                
+                if (type === 'relative') {
+                    // Show relative time (e.g., "5 minutes ago")
+                    el.textContent = getRelativeTime(date);
+                } else if (type === 'full') {
+                    // Show full date in 24-hour format
+                    const options = { 
+                        month: 'short', 
+                        day: 'numeric', 
+                        hour: '2-digit', 
+                        minute: '2-digit',
+                        hour12: false // 24-hour format
+                    };
+                    el.textContent = date.toLocaleString('en-US', options);
+                }
+            });
+        }
+
+        function getRelativeTime(date) {
+            const now = new Date();
+            const diffInSeconds = Math.floor((now - date) / 1000);
+            
+            // Future time
+            if (diffInSeconds < 0) {
+                const absDiff = Math.abs(diffInSeconds);
+                if (absDiff < 60) return 'in ' + absDiff + ' seconds';
+                if (absDiff < 3600) return 'in ' + Math.floor(absDiff / 60) + ' minutes';
+                if (absDiff < 86400) return 'in ' + Math.floor(absDiff / 3600) + ' hours';
+                return 'in ' + Math.floor(absDiff / 86400) + ' days';
+            }
+            
+            // Past time
+            if (diffInSeconds < 60) return diffInSeconds + ' seconds ago';
+            if (diffInSeconds < 3600) return Math.floor(diffInSeconds / 60) + ' minutes ago';
+            if (diffInSeconds < 86400) return Math.floor(diffInSeconds / 3600) + ' hours ago';
+            if (diffInSeconds < 604800) return Math.floor(diffInSeconds / 86400) + ' days ago';
+            return date.toLocaleDateString();
+        }
+
+        // Update relative times every minute
+        setInterval(convertTimestamps, 60000);
+    </script>
+    @endpush
 </div>

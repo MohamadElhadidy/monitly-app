@@ -33,6 +33,14 @@ class BillingController extends Controller
             $user = $request->user();
             $plan = $validated['plan'];
             
+            // 🔥 FIX: Use team as billable for team plans
+            $billable = $plan === 'team' ? $user->currentTeam : $user;
+            
+            // Validate that team exists for team plans
+            if ($plan === 'team' && !$billable) {
+                return back()->with('error', 'You must be part of a team to subscribe to the Team plan.');
+            }
+            
             $addons = $validated['addons'] ?? [];
             if (empty($addons) && !empty($validated['addon'])) {
                 $addons = [$validated['addon']];
@@ -40,7 +48,7 @@ class BillingController extends Controller
             $addons = array_filter($addons);
 
             $checkout = $this->paddleService->createCheckoutSession(
-                billable: $user,
+                billable: $billable,
                 plan: $plan,
                 addons: $addons,
             );
@@ -51,6 +59,8 @@ class BillingController extends Controller
 
             Log::info('Checkout initiated', [
                 'user_id' => $user->id,
+                'billable_type' => get_class($billable),
+                'billable_id' => $billable->id,
                 'plan' => $plan,
                 'addons' => $addons,
             ]);
@@ -79,8 +89,18 @@ class BillingController extends Controller
 
         if (!$checkout) {
             $user = $request->user();
+            
+            // 🔥 FIX: Use team as billable for team plans
+            $billable = $plan === 'team' ? $user->currentTeam : $user;
+            
+            // Validate that team exists for team plans
+            if ($plan === 'team' && !$billable) {
+                return redirect()->route('billing.index')
+                    ->with('error', 'You must be part of a team to subscribe to the Team plan.');
+            }
+            
             $checkout = $this->paddleService->createCheckoutSession(
-                billable: $user,
+                billable: $billable,
                 plan: $plan,
                 addons: $addons,
             );
@@ -111,17 +131,29 @@ class BillingController extends Controller
         try {
             $user = $request->user();
             
-            if (!$user->paddle_customer_id) {
+            // Determine if managing user or team subscription
+            $billable = $user;
+            
+            // If user has a team with a subscription, manage that instead
+            if ($user->currentTeam && $user->currentTeam->paddle_customer_id) {
+                $billable = $user->currentTeam;
+            }
+            
+            if (!$billable->paddle_customer_id) {
                 return back()->with('error', 'No subscription found. Please subscribe first.');
             }
 
-            $portalUrl = $this->paddleService->generatePortalUrl($user);
+            $portalUrl = $this->paddleService->generatePortalUrl($billable);
             
             if (!$portalUrl) {
                 return back()->with('error', 'Unable to access portal. Contact support.');
             }
 
-            Log::info('Customer portal accessed', ['user_id' => $user->id]);
+            Log::info('Customer portal accessed', [
+                'user_id' => $user->id,
+                'billable_type' => get_class($billable),
+                'billable_id' => $billable->id,
+            ]);
 
             return redirect()->away($portalUrl);
             
