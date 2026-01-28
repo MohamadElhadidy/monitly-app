@@ -108,7 +108,7 @@ Route::middleware(['auth', 'verified'])->prefix('billing')->name('billing.')->gr
     Route::post('/checkout', [BillingController::class, 'checkout'])->name('checkout');
     Volt::route('/checkout', 'pages.billing.checkout')->name('checkout.page');
     Volt::route('/success', 'pages.billing.success')->name('success');
-    
+     Volt::route('/invoices', 'pages.billing.invoices')->name('invoices');
 
     // Subscription management - Redirects to Paddle Customer Portal
     // This is the main route for managing subscriptions, payment methods, and billing preferences

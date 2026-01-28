@@ -161,46 +161,50 @@ class PaddleService
         }
     }
 
-    public function cancelSubscription(Model $billable): bool
-    {
-        try {
-            if (method_exists($billable, 'subscription')) {
-                $subscription = $billable->subscription('default');
-                
-                if ($subscription && method_exists($subscription, 'active') && $subscription->active()) {
-                    if (method_exists($subscription, 'cancel')) {
-                        $subscription->cancel();
-                        Log::info('Subscription cancelled via Cashier', ['billable_id' => $billable->id]);
-                    }
-                }
-            }
-            
-            $billable->update([
-                'billing_status' => 'canceled',
-                'billing_plan' => 'free',
-            ]);
-            
-            return true;
-        } catch (\Exception $e) {
-            Log::error('Cancel subscription error', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            
-            try {
-                $billable->update([
-                    'billing_status' => 'canceled',
-                    'billing_plan' => 'free',
-                ]);
-            } catch (\Exception $dbError) {
-                Log::error('Failed to update local billing status', [
-                    'error' => $dbError->getMessage()
-                ]);
-            }
-            
+  /**
+ * 🔥 FIX #1: Cancel a subscription in Paddle
+ */
+public function cancelSubscription(string $subscriptionId, bool $immediately = false): bool
+{
+    try {
+        $apiKey = config('services.paddle.api_key') ?? env('PADDLE_API_KEY');
+        
+        if (!$apiKey) {
+            Log::error('❌ Paddle API key not configured');
             return false;
         }
+
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $apiKey,
+            'Content-Type' => 'application/json',
+        ])->post("https://api.paddle.com/subscriptions/{$subscriptionId}/cancel", [
+            'effective_from' => $immediately ? 'immediately' : 'next_billing_period',
+        ]);
+
+        if ($response->successful()) {
+            Log::info('✅ Paddle subscription canceled', [
+                'subscription_id' => $subscriptionId,
+                'immediately' => $immediately,
+            ]);
+            return true;
+        }
+
+        Log::error('❌ Failed to cancel Paddle subscription', [
+            'subscription_id' => $subscriptionId,
+            'status' => $response->status(),
+            'body' => $response->body(),
+        ]);
+        
+        return false;
+        
+    } catch (\Exception $e) {
+        Log::error('❌ Exception canceling Paddle subscription', [
+            'subscription_id' => $subscriptionId,
+            'error' => $e->getMessage(),
+        ]);
+        return false;
     }
+}
 
     public function generatePortalUrl(Model $billable): ?string
     {

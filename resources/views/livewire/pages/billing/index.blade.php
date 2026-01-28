@@ -1,6 +1,8 @@
 <?php
+// File: resources/views/livewire/pages/billing/index-with-cancel.blade.php
 use Livewire\Volt\Component;
 use App\Services\Billing\PlanLimits;
+use App\Services\Billing\PaddleService;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Computed;
 
@@ -8,19 +10,26 @@ new
 #[Layout('layouts.app')]
 class extends Component {
     
+    public $showCancelModal = false;
+    public $cancelReason = '';
+    
     #[Computed]
     public function billable()
     {
         $user = auth()->user();
         $team = $user->currentTeam;
         
-        // If user has a team with subscription, use team
-        if ($team && $team->paddle_subscription_id) {
+        // Use team if it has active subscription
+        if ($team && $team->paddle_subscription_id && in_array($team->billing_status ?? '', ['active', 'grace'])) {
             return $team;
         }
         
-        // Otherwise use user
-        return $user;
+        // Use user if they have active subscription
+        if ($user->paddle_subscription_id && in_array($user->billing_status ?? '', ['active', 'grace'])) {
+            return $user;
+        }
+        
+        return $team ?? $user;
     }
     
     #[Computed]
@@ -35,7 +44,7 @@ class extends Component {
             'name' => $planConfig['name'] ?? ucfirst($planSlug),
             'price' => $planConfig['price'] ?? 0,
             'status' => $billable->billing_status ?? 'free',
-            'isSubscribed' => method_exists($billable, 'isSubscribed') ? $billable->isSubscribed() : false,
+            'isSubscribed' => in_array($billable->billing_status ?? '', ['active', 'grace']),
             'nextBillAt' => $billable->next_bill_at ?? null,
             'isTeamBilling' => $billable instanceof \App\Models\Team,
         ];
@@ -47,7 +56,6 @@ class extends Component {
         $user = auth()->user();
         $billable = $this->billable();
         
-        // Get monitor count and limit
         if ($billable instanceof \App\Models\Team) {
             $activeMonitors = $billable->monitors()->count();
             $monitorLimit = PlanLimits::monitorLimitForTeam($billable);
@@ -109,6 +117,54 @@ class extends Component {
     {
         return redirect()->route('billing.portal');
     }
+    
+    public function openCancelModal()
+    {
+        if (!$this->currentPlan()['isSubscribed']) {
+            session()->flash('error', 'You do not have an active subscription to cancel.');
+            return;
+        }
+        
+        $this->showCancelModal = true;
+    }
+    
+    public function cancelSubscription()
+    {
+        try {
+            $billable = $this->billable();
+            
+            if (!$billable->paddle_subscription_id) {
+                session()->flash('error', 'No subscription found.');
+                $this->showCancelModal = false;
+                return;
+            }
+            
+            // Use Paddle service to cancel
+            $paddleService = app(PaddleService::class);
+            $success = $paddleService->cancelSubscription($billable->paddle_subscription_id, false);
+            
+            if ($success) {
+                // Update local status
+                $billable->billing_status = 'canceled';
+                $billable->save();
+                
+                session()->flash('success', 'Your subscription has been canceled. You will have access until ' . ($billable->next_bill_at?->format('M d, Y') ?? 'the end of your billing period') . '.');
+            } else {
+                session()->flash('error', 'Unable to cancel subscription. Please try using the Paddle portal or contact support.');
+            }
+            
+            $this->showCancelModal = false;
+            
+        } catch (\Exception $e) {
+            \Log::error('Subscription cancellation error', [
+                'error' => $e->getMessage(),
+                'user_id' => auth()->id(),
+            ]);
+            
+            session()->flash('error', 'An error occurred. Please contact support.');
+            $this->showCancelModal = false;
+        }
+    }
 }; ?>
 
 <div>
@@ -126,7 +182,7 @@ class extends Component {
         <!-- Page Header -->
         <div class="mb-8">
             <h1 class="text-3xl font-bold text-gray-900">Billing & Subscription</h1>
-            <p class="mt-2 text-sm text-gray-600">Manage your plan and add-ons</p>
+            <p class="mt-2 text-sm text-gray-600">Manage your plan, add-ons, and subscription</p>
         </div>
 
         <!-- Flash Messages -->
@@ -177,6 +233,12 @@ class extends Component {
                             </span>
                         </div>
                         @endif
+                        <div class="flex items-center gap-2 text-sm">
+                            <span class="text-gray-600">Monthly cost:</span>
+                            <span class="font-semibold text-gray-900">
+                                ${{ $this->currentPlan()['price'] }}/month
+                            </span>
+                        </div>
                     </div>
                     @endif
 
@@ -208,8 +270,10 @@ class extends Component {
                     </div>
                 </div>
 
-                <div class="ml-6">
+                <!-- Action Buttons -->
+                <div class="ml-6 flex flex-col gap-3">
                     @if($this->currentPlan()['isSubscribed'])
+                    <!-- Manage Subscription Button -->
                     <x-ui.button wire:click="manageSubscription" variant="secondary">
                         <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -217,6 +281,15 @@ class extends Component {
                         </svg>
                         Manage Subscription
                     </x-ui.button>
+                    
+                    <!-- Cancel Button -->
+                    <button wire:click="openCancelModal" 
+                            class="inline-flex items-center justify-center px-4 py-2 border border-red-300 rounded-lg text-sm font-medium text-red-700 bg-white hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition">
+                        <svg class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                        Cancel Subscription
+                    </button>
                     @endif
                 </div>
             </div>
@@ -319,4 +392,77 @@ class extends Component {
         </div>
 
     </div>
+
+    <!-- 🔥 CANCEL SUBSCRIPTION MODAL -->
+    @if($showCancelModal)
+    <div class="fixed inset-0 z-50 overflow-y-auto" x-data="{ show: @entangle('showCancelModal') }">
+        <div class="flex min-h-screen items-center justify-center px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+            <!-- Background overlay -->
+            <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" 
+                 wire:click="$set('showCancelModal', false)"></div>
+
+            <!-- Modal panel -->
+            <div class="inline-block align-bottom bg-white rounded-lg px-4 pt-5 pb-4 text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full sm:p-6">
+                <div class="sm:flex sm:items-start">
+                    <div class="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100 sm:mx-0 sm:h-10 sm:w-10">
+                        <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                    </div>
+                    <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left flex-1">
+                        <h3 class="text-lg leading-6 font-medium text-gray-900 mb-2">
+                            Cancel Subscription
+                        </h3>
+                        <div class="mt-2">
+                            <p class="text-sm text-gray-500 mb-4">
+                                Are you sure you want to cancel your <strong>{{ $this->currentPlan()['name'] }}</strong> subscription?
+                            </p>
+                            
+                            @if($this->currentPlan()['nextBillAt'])
+                            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-4 mb-4">
+                                <div class="flex">
+                                    <div class="flex-shrink-0">
+                                        <svg class="h-5 w-5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                        </svg>
+                                    </div>
+                                    <div class="ml-3">
+                                        <p class="text-sm text-yellow-700">
+                                            You'll keep access until <strong>{{ $this->currentPlan()['nextBillAt']->format('M d, Y') }}</strong>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                            @endif
+                            
+                            <div class="mb-4">
+                                <label for="cancelReason" class="block text-sm font-medium text-gray-700 mb-1">
+                                    Why are you canceling? (Optional)
+                                </label>
+                                <textarea 
+                                    wire:model="cancelReason" 
+                                    id="cancelReason"
+                                    rows="3" 
+                                    class="shadow-sm focus:ring-red-500 focus:border-red-500 block w-full sm:text-sm border-gray-300 rounded-md"
+                                    placeholder="Help us improve by sharing your feedback..."></textarea>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="mt-5 sm:mt-4 sm:flex sm:flex-row-reverse gap-3">
+                    <button type="button" 
+                            wire:click="cancelSubscription"
+                            class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-red-600 text-base font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 sm:ml-3 sm:w-auto sm:text-sm">
+                        Yes, Cancel Subscription
+                    </button>
+                    <button type="button" 
+                            wire:click="$set('showCancelModal', false)"
+                            class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:w-auto sm:text-sm">
+                        Keep Subscription
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    @endif
 </div>
