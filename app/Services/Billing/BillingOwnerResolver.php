@@ -10,7 +10,7 @@ class BillingOwnerResolver
 {
     public function resolve(User $user): array
     {
-        $team = $this->currentTeam($user);
+        $team = $this->availableTeam($user);
 
         if ($team && $this->isTeamPlan($team->billing_plan)) {
             return [
@@ -30,7 +30,7 @@ class BillingOwnerResolver
     public function resolveForPlan(User $user, string $plan): ?array
     {
         if ($this->isTeamPlan($plan)) {
-            $team = $this->currentTeam($user);
+            $team = $this->availableTeam($user);
 
             if (! $team) {
                 return null;
@@ -73,5 +73,21 @@ class BillingOwnerResolver
         }
 
         return $team;
+    }
+
+    public function availableTeam(User $user): ?Team
+    {
+        $team = $this->currentTeam($user);
+
+        if ($team) {
+            return $team;
+        }
+
+        $owned = $user->ownedTeams()->where('personal_team', false)->first();
+        if ($owned) {
+            return $owned;
+        }
+
+        return $user->allTeams()->where('personal_team', false)->first();
     }
 }
