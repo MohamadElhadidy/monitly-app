@@ -35,7 +35,7 @@ class CheckMonitorUrl implements ShouldQueue, ShouldBeUniqueUntilProcessing
 
     public function __construct(public int $monitorId)
     {
-        $this->onQueue('checks');
+        $this->onQueue('checks_standard');
     }
 
     public function uniqueId(): string
@@ -53,7 +53,7 @@ class CheckMonitorUrl implements ShouldQueue, ShouldBeUniqueUntilProcessing
         MonitorIntervalResolver $intervalResolver,
         MonitorAlertRecipientResolver $recipientResolver
     ): void {
-        $lock = Cache::lock('lock:monitor:check:' . $this->monitorId, 55);
+        $lock = Cache::store('redis')->lock('lock:monitor_check:' . $this->monitorId, 55);
 
         if (! $lock->get()) {
             return;

@@ -16,7 +16,9 @@ class MonitorSlaBreachMail extends Mailable implements ShouldQueue
         public Monitor $monitor,
         public array $stats,
         public float $targetPct,
-    ) {}
+    ) {
+        $this->onQueue('notifications');
+    }
 
     public function build(): self
     {

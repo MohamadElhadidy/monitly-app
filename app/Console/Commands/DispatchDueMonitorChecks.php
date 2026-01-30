@@ -2,8 +2,7 @@
 
 namespace App\Console\Commands;
 
-use App\Jobs\CheckMonitorUrl;
-use App\Models\Monitor;
+use App\Jobs\Monitoring\DispatchDueChecksJob;
 use Illuminate\Console\Command;
 
 class DispatchDueMonitorChecks extends Command
@@ -17,26 +16,9 @@ class DispatchDueMonitorChecks extends Command
         if ($limit < 1) $limit = 1;
         if ($limit > 5000) $limit = 5000;
 
-        $now = now();
+        DispatchDueChecksJob::dispatch($limit)->onQueue('maintenance');
 
-        $monitors = Monitor::query()
-            ->where('paused', false)
-            ->where(function ($q) use ($now) {
-                $q->whereNull('next_check_at')
-                  ->orWhere('next_check_at', '<=', $now);
-            })
-            ->orderByRaw('next_check_at is null desc')
-            ->orderBy('next_check_at')
-            ->limit($limit)
-            ->get(['id']);
-
-        $count = 0;
-        foreach ($monitors as $m) {
-            CheckMonitorUrl::dispatch((int) $m->id)->onQueue('checks');
-            $count++;
-        }
-
-        $this->info("Dispatched {$count} monitor check job(s).");
+        $this->info("Queued dispatch job for {$limit} monitor check(s).");
 
         return self::SUCCESS;
     }
