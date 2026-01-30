@@ -91,9 +91,10 @@ class AdminMetrics
         $mrr = 0.0;
 
         foreach (['free', 'pro', 'team', 'business'] as $plan) {
-            $monthly = (float) ($plans[$plan]['price_monthly'] ?? 0);
-            $mrr += $monthly * ($userCounts[$plan]?->count() ?? 0);
-            $mrr += $monthly * ($teamCounts[$plan]?->count() ?? 0);
+            $planConfig = $plans[$plan] ?? [];
+            $monthly = (float) ($planConfig['price_monthly'] ?? 0);
+            $mrr += $monthly * ($userCounts->get($plan)?->count() ?? 0);
+            $mrr += $monthly * ($teamCounts->get($plan)?->count() ?? 0);
         }
 
         return [
