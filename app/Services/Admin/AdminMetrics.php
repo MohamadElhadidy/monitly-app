@@ -7,6 +7,7 @@ use App\Models\Monitor;
 use App\Models\Team;
 use App\Models\User;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
 
 class AdminMetrics
@@ -24,7 +25,7 @@ class AdminMetrics
         ];
     }
 
-    public function revenueTotals(?Carbon $start = null, ?Carbon $end = null): float
+    public function revenueTotals(?CarbonInterface $start = null, ?CarbonInterface $end = null): float
     {
         $query = DB::table('transactions')->whereIn('status', ['paid', 'completed']);
 
@@ -39,7 +40,7 @@ class AdminMetrics
         return (float) $query->sum(DB::raw('CAST(total as DECIMAL(10,2))'));
     }
 
-    public function refundTotals(?Carbon $start = null, ?Carbon $end = null): float
+    public function refundTotals(?CarbonInterface $start = null, ?CarbonInterface $end = null): float
     {
         $query = DB::table('billing_refunds');
 
