@@ -30,7 +30,7 @@
         // Determine billing entity
         $billable = $currentTeam && $currentTeam->paddle_subscription_id ? $currentTeam : $user;
         $billingPlan = $billable->billing_plan ?? 'free';
-        $isTeamPlan = $billingPlan === 'team';
+        $isTeamPlan = in_array($billingPlan, ['team', 'business'], true);
     @endphp
 
     <div class="h-full" x-data="{ 

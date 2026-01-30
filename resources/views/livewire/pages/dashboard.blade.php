@@ -117,13 +117,13 @@ class extends Component {
     <!-- Main content -->
     <div class="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
         
-        <!-- Grace Period Alert -->
+        <!-- Payment Issue Alert -->
         @if ($plan['isInGrace'])
         <x-ui.alert type="warning" :dismissible="true" class="mb-6">
             <div class="flex items-center justify-between">
                 <div>
                     <h3 class="text-sm font-medium">Payment Issue</h3>
-                    <p class="mt-1 text-sm">Your subscription payment failed. Please update your payment method to avoid service interruption.</p>
+                    <p class="mt-1 text-sm">Your subscription payment is past due. Please update your payment method to avoid service interruption.</p>
                 </div>
                 <x-ui.button href="{{ route('billing.index') }}" variant="secondary" size="sm">
                     Update Payment

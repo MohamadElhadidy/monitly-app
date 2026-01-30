@@ -37,7 +37,7 @@
                     <span class="inline-flex h-2 w-2 rounded-full {{ $colors['dot'] }}"></span>
                     <span class="text-xs font-semibold {{ $colors['text'] }}">{{ $planName }} Plan</span>
                 </div>
-                @if($billingPlan !== 'team')
+                @if(!in_array($billingPlan, ['team', 'business'], true))
                     <a href="{{ route('billing.index') }}" class="text-xs font-semibold text-emerald-600 hover:text-emerald-700 transition-colors">
                         Upgrade →
                     </a>
@@ -141,7 +141,7 @@
                     @endif
 
                     <!-- Notifications -->
-                    @if($billingPlan === 'team' && $currentTeam)
+                    @if(in_array($billingPlan, ['team', 'business'], true) && $currentTeam)
                     <li>
                         <a href="{{ route('team.notifications', $currentTeam->id) }}" class="{{ request()->routeIs('team.notifications') ? 'bg-emerald-50 text-emerald-700 font-semibold' : 'text-gray-700 hover:bg-gray-50 hover:text-emerald-700' }} group flex items-center gap-x-3 rounded-lg px-3 py-2.5 text-sm transition-all">
                             <svg class="h-5 w-5 {{ request()->routeIs('team.notifications') ? 'text-emerald-600' : 'text-gray-400 group-hover:text-emerald-600' }} transition-colors" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">

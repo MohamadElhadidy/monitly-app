@@ -11,6 +11,8 @@ use Illuminate\Validation\ValidationException;
 
 class PlanEnforcer
 {
+    private const BLOCKED_MESSAGE = 'This item is blocked due to your plan limits.';
+
     public function assertCanCreateMonitor(Monitor $monitor): void
     {
         $owner = User::query()->find($monitor->user_id);
@@ -24,9 +26,9 @@ class PlanEnforcer
                 throw ValidationException::withMessages(['team' => 'Team not found.']);
             }
 
-            if (PlanLimits::planForTeam($team) !== PlanLimits::PLAN_TEAM) {
+            if (! in_array(PlanLimits::planForTeam($team), [PlanLimits::PLAN_TEAM, PlanLimits::PLAN_BUSINESS], true)) {
                 throw ValidationException::withMessages([
-                    'team' => 'Your team is not on the Team plan. Team monitors are not allowed.',
+                    'team' => 'Your team is not on the Team or Business plan. Team monitors are not allowed.',
                 ]);
             }
 
@@ -35,7 +37,7 @@ class PlanEnforcer
 
             if ($used >= $limit) {
                 throw ValidationException::withMessages([
-                    'limit' => "Monitor limit reached ({$limit}). Upgrade or add Extra Monitor Packs (+5).",
+                    'limit' => self::BLOCKED_MESSAGE,
                 ]);
             }
 
@@ -56,7 +58,7 @@ class PlanEnforcer
 
         if ($used >= $limit) {
             throw ValidationException::withMessages([
-                'limit' => "Monitor limit reached ({$limit}). Upgrade or add Extra Monitor Packs (+5) on Pro.",
+                'limit' => self::BLOCKED_MESSAGE,
             ]);
         }
     }
@@ -72,25 +74,18 @@ class PlanEnforcer
 
     public function enforceGraceDowngrades(): void
     {
-        $now = now();
-
         User::query()
-            ->where('billing_status', 'grace')
-            ->whereNotNull('grace_ends_at')
-            ->where('grace_ends_at', '<=', $now)
             ->chunkById(200, function ($users) {
                 foreach ($users as $u) {
-                    $this->downgradeUserToFree($u);
+                    $this->enforceMonitorCapForUser($u);
                 }
             });
 
         Team::query()
-            ->where('billing_status', 'grace')
-            ->whereNotNull('grace_ends_at')
-            ->where('grace_ends_at', '<=', $now)
             ->chunkById(200, function ($teams) {
                 foreach ($teams as $t) {
-                    $this->downgradeTeamToFree($t);
+                    $this->enforceMonitorCapForTeam($t);
+                    $this->enforceSeatCapForTeam($t);
                 }
             });
     }
@@ -106,8 +101,6 @@ class PlanEnforcer
 
             $user->billing_plan = PlanLimits::PLAN_FREE;
             $user->billing_status = 'free';
-            $user->addon_extra_monitor_packs = 0;
-            $user->addon_interval_override_minutes = null;
             $user->grace_ends_at = null;
             $user->save();
 
@@ -135,9 +128,6 @@ class PlanEnforcer
 
             $team->billing_plan = PlanLimits::PLAN_FREE;
             $team->billing_status = 'free';
-            $team->addon_extra_monitor_packs = 0;
-            $team->addon_extra_seat_packs = 0;
-            $team->addon_interval_override_minutes = null;
             $team->grace_ends_at = null;
             $team->save();
 
@@ -182,7 +172,7 @@ class PlanEnforcer
             ->update([
                 'paused' => true,
                 'locked_by_plan' => true,
-                'locked_reason' => 'Plan limit exceeded',
+                'locked_reason' => self::BLOCKED_MESSAGE,
             ]);
     }
 
@@ -210,7 +200,7 @@ class PlanEnforcer
             ->update([
                 'paused' => true,
                 'locked_by_plan' => true,
-                'locked_reason' => 'Plan limit exceeded',
+                'locked_reason' => self::BLOCKED_MESSAGE,
             ]);
     }
 
@@ -226,26 +216,40 @@ class PlanEnforcer
 
         $limit = PlanLimits::seatLimitForTeam($team);
 
-        $pivotUsers = $team->users()->get(['users.id'])->pluck('id')->all();
         $ownerId = (int) $team->user_id;
-
-        $allUserIds = collect($pivotUsers)->push($ownerId)->unique()->values()->all();
-
-        if (count($allUserIds) <= $limit) {
-            return;
-        }
-
-        $toRemoveCount = count($allUserIds) - $limit;
-
-        $removeIds = $team->users()
-            ->orderByDesc('team_user.created_at')
-            ->limit($toRemoveCount)
+        $memberIds = $team->users()
+            ->orderBy('team_user.created_at', 'asc')
             ->pluck('users.id')
             ->map(fn ($id) => (int) $id)
             ->all();
 
-        if (! empty($removeIds)) {
-            $team->users()->detach($removeIds);
+        $allowedIds = collect($memberIds)
+            ->prepend($ownerId)
+            ->unique()
+            ->take($limit)
+            ->values()
+            ->all();
+
+        DB::table('team_user')
+            ->where('team_id', $team->id)
+            ->update([
+                'blocked_by_plan' => false,
+                'blocked_reason' => null,
+            ]);
+
+        $blockedIds = collect($memberIds)
+            ->reject(fn ($id) => in_array($id, $allowedIds, true) || $id === $ownerId)
+            ->values()
+            ->all();
+
+        if (! empty($blockedIds)) {
+            DB::table('team_user')
+                ->where('team_id', $team->id)
+                ->whereIn('user_id', $blockedIds)
+                ->update([
+                    'blocked_by_plan' => true,
+                    'blocked_reason' => self::BLOCKED_MESSAGE,
+                ]);
         }
     }
 }

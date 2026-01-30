@@ -18,7 +18,7 @@ class PaddleService
     public function createCheckoutSession(
         Model $billable,
         string $plan,
-        array $addons = [],
+        string $interval = 'monthly',
     ): ?array {
         try {
             $priceIds = config("billing.plans.{$plan}.price_ids", []);
@@ -34,22 +34,12 @@ class PaddleService
 
             // Build items array
             $items = [];
-            
-            if ($plan !== 'free' && !empty($priceIds)) {
-                $items[] = [
-                    'price_id' => $priceIds[0],
-                    'quantity' => 1,
-                ];
-            }
 
-            // Add addons
-            foreach ($addons as $addonKey) {
-                if (empty($addonKey)) continue;
-                
-                $addonPriceIds = config("billing.addons.{$addonKey}.price_ids", []);
-                if (!empty($addonPriceIds)) {
+            if ($plan !== 'free' && !empty($priceIds)) {
+                $priceId = is_array($priceIds) ? ($priceIds[$interval] ?? null) : null;
+                if ($priceId) {
                     $items[] = [
-                        'price_id' => $addonPriceIds[0],
+                        'price_id' => $priceId,
                         'quantity' => 1,
                     ];
                 }
@@ -81,7 +71,7 @@ class PaddleService
                             'owner_id' => $billable->id,
                             'user_id' => $billable->id,
                             'plan' => $plan,
-                            'addons' => $addons,
+                            'interval' => $interval,
                         ]);
 
                     Log::info('Cashier checkout created', [

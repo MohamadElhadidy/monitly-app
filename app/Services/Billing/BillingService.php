@@ -26,7 +26,7 @@ class BillingService
             return [
                 'plan' => $plan,
                 'status' => $status,
-                'subscribed' => in_array($status, ['active']),
+                'subscribed' => in_array($status, ['active', 'past_due', 'canceling']),
                 'next_bill_at' => $billable->next_bill_at ?? null,
                 'grace_ends_at' => $billable->grace_ends_at ?? null,
                 'in_grace_period' => $this->isInGracePeriod($billable),
@@ -48,12 +48,12 @@ class BillingService
 
         return match ($action) {
             'create_monitor' => $plan !== 'free',
-            'use_slack' => in_array($plan, ['team']),
-            'use_webhooks' => in_array($plan, ['team']),
-            'invite_users' => in_array($plan, ['team']),
-            'view_full_history' => in_array($plan, ['pro', 'team']),
+            'use_slack' => in_array($plan, ['team', 'business'], true),
+            'use_webhooks' => in_array($plan, ['team', 'business'], true),
+            'invite_users' => in_array($plan, ['team', 'business'], true),
+            'view_full_history' => in_array($plan, ['pro', 'team', 'business'], true),
             'sla_reports' => true, // Available to all
-            'priority_support' => $plan === 'team',
+            'priority_support' => $plan === 'business',
             default => false,
         };
     }
@@ -120,7 +120,7 @@ class BillingService
     public function canUpgrade(User $user, string $plan): bool
     {
         $currentPlan = $user->billing_plan ?? 'free';
-        $planHierarchy = ['free' => 0, 'pro' => 1, 'team' => 2];
+        $planHierarchy = ['free' => 0, 'pro' => 1, 'team' => 2, 'business' => 3];
         
         return ($planHierarchy[$plan] ?? 0) > ($planHierarchy[$currentPlan] ?? 0);
     }
@@ -131,7 +131,7 @@ class BillingService
     public function canDowngrade(User $user, string $plan): bool
     {
         $currentPlan = $user->billing_plan ?? 'free';
-        $planHierarchy = ['free' => 0, 'pro' => 1, 'team' => 2];
+        $planHierarchy = ['free' => 0, 'pro' => 1, 'team' => 2, 'business' => 3];
         
         return ($planHierarchy[$plan] ?? 0) < ($planHierarchy[$currentPlan] ?? 0);
     }
@@ -271,10 +271,14 @@ class BillingService
      */
     public function isInGracePeriod(User $user): bool
     {
-        if (!$user->grace_ends_at) {
+        if ($user->billing_status !== 'past_due') {
             return false;
         }
-        
+
+        if (! $user->grace_ends_at) {
+            return true;
+        }
+
         return $user->grace_ends_at->isFuture();
     }
 
@@ -313,14 +317,14 @@ class BillingService
     public function enterGracePeriod(User $user, int $days = 7): bool
     {
         try {
-            $user->billing_status = 'grace';
+            $user->billing_status = 'past_due';
             $user->grace_ends_at = now()->addDays($days);
             $user->save();
             
-            Log::info('Grace period started', ['user_id' => $user->id]);
+            Log::info('Past due period started', ['user_id' => $user->id]);
             return true;
         } catch (\Exception $e) {
-            Log::error('Grace period failed', ['error' => $e->getMessage()]);
+            Log::error('Past due period failed', ['error' => $e->getMessage()]);
             return false;
         }
     }

@@ -120,7 +120,7 @@ class CheckMonitorUrl implements ShouldQueue, ShouldBeUniqueUntilProcessing
             $teamCanNotify = false;
             $channel = null;
 
-            if ($monitor->team_id && $monitor->team && strtolower((string) $monitor->team->billing_plan) === 'team') {
+            if ($monitor->team_id && $monitor->team && in_array(strtolower((string) $monitor->team->billing_plan), ['team', 'business'], true)) {
                 $teamCanNotify = true;
 
                 $channel = NotificationChannel::query()->firstOrCreate(

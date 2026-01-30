@@ -25,7 +25,6 @@ class BillingService
         if (! $sub || ! $sub->active()) {
             return [
                 'plan' => 'free',
-                'addons' => [],
                 'subscribed' => false,
             ];
         }
@@ -34,11 +33,11 @@ class BillingService
 
         return [
             'plan' => match (true) {
-                in_array(Plans::PRO, $items, true)  => 'pro',
+                in_array(Plans::BUSINESS, $items, true) => 'business',
                 in_array(Plans::TEAM, $items, true) => 'team',
+                in_array(Plans::PRO, $items, true)  => 'pro',
                 default => 'free',
             },
-            'addons' => $items,
             'subscribed' => true,
         ];
     }
