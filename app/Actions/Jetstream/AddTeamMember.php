@@ -17,7 +17,7 @@ class AddTeamMember implements AddsTeamMembers
 
         if (! PlanLimits::canInviteMembers($plan)) {
             throw ValidationException::withMessages([
-                'email' => 'Adding members is disabled on your plan. Upgrade to Team to add members.',
+                'email' => 'Adding members is disabled on your plan. Upgrade to Team or Business to add members.',
             ]);
         }
 
@@ -25,7 +25,7 @@ class AddTeamMember implements AddsTeamMembers
 
         if ($team->allUsers()->count() >= $seatLimit) {
             throw ValidationException::withMessages([
-                'email' => "Seat limit reached ({$seatLimit}). Add Extra Team Member Packs (+3) to add more.",
+                'email' => 'This item is blocked due to your plan limits.',
             ]);
         }
 

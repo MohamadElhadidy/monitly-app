@@ -3,56 +3,38 @@
 namespace App\Http\Controllers\Billing;
 
 use App\Http\Controllers\Controller;
+use App\Services\Billing\BillingOwnerResolver;
+use App\Services\Billing\PaddleService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
-/**
- * Main billing controller for subscription management
- * Compatible with Laravel Cashier Paddle v2.6
- */
 class BillingController extends Controller
 {
-    /**
-     * Display billing dashboard.
-     */
-    public function index(Request $request)
+    public function portal(Request $request, BillingOwnerResolver $resolver)
     {
         $user = $request->user();
-        
-        return view('livewire.pages.billing.index', [
-            'user' => $user,
-            'subscription' => $user->subscription(),
-            'subscriptions' => $user->subscriptions,
-            'transactions' => $user->transactions()->latest()->paginate(10),
-        ]);
-    }
+        $context = $resolver->resolve($user);
+        $billable = $context['billable'];
 
-    /**
-     * Redirect to Paddle customer portal.
-     * 
-     * Creates a portal session and redirects user to Paddle's hosted portal
-     * where they can manage their subscription, payment methods, and view invoices.
-     */
-    public function portal(Request $request)
-    {
-        $user = $request->user();
-
-        // Ensure we have a Cashier customer record (customers table + Paddle customer)
-        if (!$user->customer) {
-            $user->createAsCustomer();
+        if (! $resolver->canManage($user, $context['team'])) {
+            return redirect()->route('billing.index')
+                ->with('error', 'Only the team owner can manage billing.');
         }
 
-        $customerId = $user->customer->paddle_id;
+        if (! $billable->customer) {
+            $billable->createAsCustomer();
+        }
 
-        // Optional: include the active subscription id so Paddle returns deep links
-        $subscription = $user->subscription('default') ?? $user->subscription();
+        $customerId = $billable->customer->paddle_id;
+
+        $subscription = $billable->subscription('default') ?? $billable->subscription();
         $subscriptionId = $subscription?->paddle_id;
 
         $apiKey = config('services.paddle.api_key') ?? env('PADDLE_API_KEY');
         $baseUrl = rtrim(config('services.paddle.base_url', 'https://api.paddle.com/'), '/') . '/';
 
-        if (!$apiKey) {
+        if (! $apiKey) {
             return redirect()->route('billing.index')->with('error', 'Paddle API key is not configured (PADDLE_API_KEY).');
         }
 
@@ -67,7 +49,7 @@ class BillingController extends Controller
                 'Content-Type' => 'application/json',
             ])->post($baseUrl . "customers/{$customerId}/portal-sessions", $payload);
 
-            if (!$response->successful()) {
+            if (! $response->successful()) {
                 Log::error('Paddle portal session failed', [
                     'status' => $response->status(),
                     'body' => $response->json(),
@@ -82,7 +64,7 @@ class BillingController extends Controller
             $data = $response->json('data');
             $url = data_get($data, 'urls.general.overview');
 
-            if (!$url) {
+            if (! $url) {
                 Log::error('Paddle portal session response missing url', ['response' => $response->json()]);
                 return redirect()->route('billing.index')
                     ->with('error', 'Could not open billing portal (missing URL).');
@@ -100,151 +82,46 @@ class BillingController extends Controller
         }
     }
 
-
-    /**
-     * Cancel subscription (with grace period).
-     */
-    public function cancel(Request $request)
+    public function cancel(Request $request, BillingOwnerResolver $resolver, PaddleService $paddleService)
     {
-        $subscription = $request->user()->subscription();
+        $user = $request->user();
+        $context = $resolver->resolve($user);
+        $billable = $context['billable'];
 
-        if ($subscription && $subscription->active()) {
-            $subscription->cancel();
+        if (! $resolver->canManage($user, $context['team'])) {
+            return redirect()->route('billing.index')
+                ->with('error', 'Only the team owner can manage billing.');
+        }
+
+        if ($billable->paddle_subscription_id) {
+            $paddleService->cancelSubscription($billable->paddle_subscription_id, false);
+            $billable->billing_status = 'canceling';
+            $billable->save();
 
             return redirect()->route('billing.index')
-                ->with('success', 'Subscription cancelled. You can continue using the service until the end of your billing period.');
+                ->with('success', 'Your plan will downgrade at the end of the current billing period.');
         }
 
         return redirect()->route('billing.index')
             ->with('error', 'No active subscription to cancel.');
     }
 
-    /**
-     * Cancel subscription immediately.
-     */
-    public function cancelNow(Request $request)
+    public function downloadInvoice(Request $request, $transactionId, BillingOwnerResolver $resolver)
     {
-        $subscription = $request->user()->subscription();
+        $user = $request->user();
+        $context = $resolver->resolve($user);
+        $billable = $context['billable'];
 
-        if ($subscription && $subscription->active()) {
-            $subscription->cancelNow();
-
+        if (! $resolver->canManage($user, $context['team'])) {
             return redirect()->route('billing.index')
-                ->with('success', 'Subscription cancelled immediately.');
+                ->with('error', 'Only the team owner can download invoices.');
         }
 
-        return redirect()->route('billing.index')
-            ->with('error', 'No active subscription to cancel.');
-    }
-
-    /**
-     * Resume a cancelled subscription.
-     */
-    public function resume(Request $request)
-    {
-        $subscription = $request->user()->subscription();
-
-        if ($subscription && $subscription->onGracePeriod()) {
-            $subscription->resume();
-
-            return redirect()->route('billing.index')
-                ->with('success', 'Subscription resumed successfully!');
-        }
-
-        return redirect()->route('billing.index')
-            ->with('error', 'Unable to resume subscription.');
-    }
-
-    /**
-     * Swap to a different plan/price.
-     */
-    public function swap(Request $request)
-    {
-        $request->validate([
-            'price_id' => 'required|string',
-        ]);
-
-        $subscription = $request->user()->subscription();
-
-        if ($subscription && $subscription->active()) {
-            $subscription->swap($request->input('price_id'));
-
-            return redirect()->route('billing.index')
-                ->with('success', 'Plan updated successfully!');
-        }
-
-        return redirect()->route('billing.index')
-            ->with('error', 'No active subscription to update.');
-    }
-
-    /**
-     * Update subscription quantity.
-     */
-    public function updateQuantity(Request $request)
-    {
-        $request->validate([
-            'quantity' => 'required|integer|min:1',
-        ]);
-
-        $subscription = $request->user()->subscription();
-
-        if ($subscription && $subscription->active()) {
-            $subscription->updateQuantity($request->input('quantity'));
-
-            return redirect()->route('billing.index')
-                ->with('success', 'Quantity updated successfully!');
-        }
-
-        return redirect()->route('billing.index')
-            ->with('error', 'No active subscription to update.');
-    }
-
-    /**
-     * Pause subscription.
-     */
-    public function pause(Request $request)
-    {
-        $subscription = $request->user()->subscription();
-
-        if ($subscription && $subscription->active() && !$subscription->paused()) {
-            $subscription->pause();
-
-            return redirect()->route('billing.index')
-                ->with('success', 'Subscription paused.');
-        }
-
-        return redirect()->route('billing.index')
-            ->with('error', 'Unable to pause subscription.');
-    }
-
-    /**
-     * Unpause subscription.
-     */
-    public function unpause(Request $request)
-    {
-        $subscription = $request->user()->subscription();
-
-        if ($subscription && $subscription->paused()) {
-            $subscription->unpause();
-
-            return redirect()->route('billing.index')
-                ->with('success', 'Subscription resumed.');
-        }
-
-        return redirect()->route('billing.index')
-            ->with('error', 'Subscription is not paused.');
-    }
-
-    /**
-     * Download invoice/receipt.
-     */
-    public function downloadInvoice(Request $request, $transactionId)
-    {
-        $transaction = $request->user()
+        $transaction = $billable
             ->transactions()
             ->where('id', $transactionId)
             ->firstOrFail();
 
-        return redirect($transaction->receipt_url);
+        return redirect($transaction->receipt_url ?? $transaction->invoice_url ?? '#');
     }
 }

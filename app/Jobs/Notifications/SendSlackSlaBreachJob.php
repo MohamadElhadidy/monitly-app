@@ -42,7 +42,7 @@ class SendSlackSlaBreachJob implements ShouldQueue
         $team = Team::query()->find($this->teamId);
         if (! $team) return;
 
-        if (strtolower((string) $team->billing_plan) !== 'team') return;
+        if (! in_array(strtolower((string) $team->billing_plan), ['team', 'business'], true)) return;
 
         $channel = NotificationChannel::query()->firstOrCreate(
             ['team_id' => $team->id],

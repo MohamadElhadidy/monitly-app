@@ -26,10 +26,10 @@ class extends Component
         $monitors = Monitor::query()->count();
 
         $proActive = User::query()->where('billing_plan', 'pro')->where('billing_status', 'active')->count();
-        $teamActive = Team::query()->where('billing_plan', 'team')->where('billing_status', 'active')->count();
+        $teamActive = Team::query()->whereIn('billing_plan', ['team', 'business'])->where('billing_status', 'active')->count();
 
-        $graceUsers = User::query()->where('billing_status', 'grace')->count();
-        $graceTeams = Team::query()->where('billing_status', 'grace')->count();
+        $pastDueUsers = User::query()->where('billing_status', 'past_due')->count();
+        $pastDueTeams = Team::query()->where('billing_status', 'past_due')->count();
 
         $bannedUsers = User::query()->whereNotNull('banned_at')->count();
 
@@ -43,7 +43,7 @@ class extends Component
         return compact(
             'users', 'admins', 'teams', 'monitors',
             'proActive', 'teamActive',
-            'graceUsers', 'graceTeams',
+            'pastDueUsers', 'pastDueTeams',
             'bannedUsers',
             'estimate',
             'recentAudits'
@@ -206,8 +206,8 @@ class extends Component
             <div class="mt-4 space-y-3 text-sm text-slate-600">
                 <div class="flex items-center justify-between"><span>Pro active</span><span class="font-semibold text-slate-900">{{ $proActive }}</span></div>
                 <div class="flex items-center justify-between"><span>Team active</span><span class="font-semibold text-slate-900">{{ $teamActive }}</span></div>
-                <div class="flex items-center justify-between"><span>Grace (users)</span><span class="font-semibold text-slate-900">{{ $graceUsers }}</span></div>
-                <div class="flex items-center justify-between"><span>Grace (teams)</span><span class="font-semibold text-slate-900">{{ $graceTeams }}</span></div>
+                <div class="flex items-center justify-between"><span>Past due (users)</span><span class="font-semibold text-slate-900">{{ $pastDueUsers }}</span></div>
+                <div class="flex items-center justify-between"><span>Past due (teams)</span><span class="font-semibold text-slate-900">{{ $pastDueTeams }}</span></div>
 
                 <div class="pt-4 border-t border-slate-200">
                     <a href="{{ route('admin.subscriptions') }}" class="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800">

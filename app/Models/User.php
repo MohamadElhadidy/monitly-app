@@ -40,6 +40,7 @@ class User extends Authenticatable implements MustVerifyEmail
             'grace_ends_at' => 'datetime',
             'first_paid_at' => 'datetime',
             'refund_override_until' => 'datetime',
+            'checkout_in_progress_until' => 'datetime',
         ];
     }
     
@@ -86,7 +87,7 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     public function isSubscribed(): bool
     {
-        return in_array($this->billing_status, ['active']);
+        return in_array($this->billing_status, ['active', 'past_due', 'canceling'], true);
     }
 
     /**
@@ -94,14 +95,6 @@ class User extends Authenticatable implements MustVerifyEmail
      */
     public function isInGrace(): bool
     {
-        if ($this->billing_status !== 'grace') {
-            return false;
-        }
-
-        if (!$this->grace_ends_at) {
-            return true;
-        }
-
-        return now()->isBefore($this->grace_ends_at);
+        return $this->billing_status === 'past_due';
     }
 }

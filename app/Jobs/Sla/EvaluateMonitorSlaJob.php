@@ -101,7 +101,7 @@ class EvaluateMonitorSlaJob implements ShouldQueue, ShouldBeUniqueUntilProcessin
             $monitor->save();
 
             // Slack breach alert: Team plan only + channel enabled + per-monitor slack toggle
-            if ($monitor->team_id && $monitor->team && strtolower((string) $monitor->team->billing_plan) === 'team') {
+            if ($monitor->team_id && $monitor->team && in_array(strtolower((string) $monitor->team->billing_plan), ['team', 'business'], true)) {
                 if (! (bool) $monitor->slack_alerts_enabled) return;
 
                 $channel = NotificationChannel::query()->firstOrCreate(

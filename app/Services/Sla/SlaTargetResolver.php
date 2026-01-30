@@ -13,6 +13,7 @@ class SlaTargetResolver
 
         return match ($plan) {
             'team' => 99.9,
+            'business' => 99.9,
             'pro'  => 99.5,
             default => 99.0, // free
         };
@@ -24,6 +25,7 @@ class SlaTargetResolver
 
         return match ($plan) {
             'pro' => 99.5,
+            'business' => 99.9,
             default => 99.0,
         };
     }

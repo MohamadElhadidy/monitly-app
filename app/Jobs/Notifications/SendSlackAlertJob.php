@@ -43,7 +43,7 @@ class SendSlackAlertJob implements ShouldQueue
         if (! $team) return;
 
         // Hard plan enforcement: only Team plan may use Slack
-        if (strtolower((string) $team->billing_plan) !== 'team') {
+        if (! in_array(strtolower((string) $team->billing_plan), ['team', 'business'], true)) {
             return;
         }
 

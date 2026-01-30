@@ -46,13 +46,13 @@ class extends Component {
         }
 
         $billable = $team->paddle_subscription_id ? $team : $user;
-        return ($billable->billing_plan ?? 'free') === 'team';
+        return in_array(($billable->billing_plan ?? 'free'), ['team', 'business'], true);
     }
 
     public function saveSlackIntegration()
     {
         if (!$this->hasTeamPlan()) {
-            session()->flash('error', 'Slack integration is only available on Team plans.');
+            session()->flash('error', 'Slack integration is only available on Team or Business plans.');
             return;
         }
 

@@ -16,7 +16,7 @@ class extends Component
 
     public string $search = '';
     public string $plan = 'all';   // all|free|pro
-    public string $status = 'all'; // all|free|active|grace|canceled
+    public string $status = 'all'; // all|free|active|past_due|canceling|canceled
     public string $banned = 'all'; // all|yes|no
 
     public ?int $selectedUserId = null;
@@ -200,7 +200,8 @@ class extends Component
                         <option value="all">All</option>
                         <option value="free">Free</option>
                         <option value="active">Active</option>
-                        <option value="grace">Grace</option>
+                        <option value="past_due">Past due</option>
+                        <option value="canceling">Canceling</option>
                         <option value="canceled">Canceled</option>
                     </select>
                 </div>
@@ -272,7 +273,8 @@ class extends Component
                                     $status = (string) $u->billing_status;
                                     $statusClass = match($status) {
                                         'active' => 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200',
-                                        'grace' => 'bg-amber-50 text-amber-700 ring-1 ring-amber-200',
+                                        'past_due' => 'bg-amber-50 text-amber-700 ring-1 ring-amber-200',
+                                        'canceling' => 'bg-blue-50 text-blue-700 ring-1 ring-blue-200',
                                         'canceled' => 'bg-rose-50 text-rose-700 ring-1 ring-rose-200',
                                         default => 'bg-slate-50 text-slate-700 ring-1 ring-slate-200',
                                     };
@@ -298,8 +300,8 @@ class extends Component
                                             <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {{ $statusClass }}">
                                                 {{ strtoupper($status ?: 'free') }}
                                             </span>
-                                            @if ($u->grace_ends_at)
-                                                <span class="text-xs text-slate-500">ends {{ $u->grace_ends_at->format('Y-m-d') }}</span>
+                                            @if ($u->billing_status === 'canceling' && $u->next_bill_at)
+                                                <span class="text-xs text-slate-500">ends {{ $u->next_bill_at->format('Y-m-d') }}</span>
                                             @endif
                                         </div>
                                     </td>
