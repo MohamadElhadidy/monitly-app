@@ -20,7 +20,7 @@ class MonitorRecoveredMail extends Mailable implements ShouldQueue
         public Monitor $monitor,
         public Incident $incident,
     ) {
-        $this->onQueue('mail');
+        $this->onQueue('notifications');
     }
 
     public function envelope(): Envelope

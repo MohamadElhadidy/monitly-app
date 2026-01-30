@@ -16,6 +16,7 @@ new #[Layout('layouts.app')] class extends Component {
     public array $plansConfig = [];
     public bool $isTeamContext = false;
     public bool $hasTeam = false;
+
     public bool $canManage = true;
     public bool $checkoutLocked = false;
     public int $monitorCount = 0;
@@ -31,6 +32,7 @@ new #[Layout('layouts.app')] class extends Component {
         $user = auth()->user();
         $context = $resolver->resolve($user);
         $billable = $context['billable'];
+
         $this->hasTeam = (bool) $resolver->availableTeam($user);
 
         $this->isTeamContext = $context['type'] === 'team';
@@ -147,7 +149,9 @@ new #[Layout('layouts.app')] class extends Component {
 
             @if (! $hasTeam)
                 <div class="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
-                    Team and Business plans require a team. <a href="{{ route('teams.create') }}" class="font-semibold text-emerald-700 hover:text-emerald-800">Create a team</a> to continue.
+                    Team and Business plans require a team.
+                    <a href="{{ route('teams.create') }}" class="font-semibold text-emerald-700 hover:text-emerald-800">Create a team</a>
+                    to continue.
                 </div>
             @endif
 
@@ -245,6 +249,7 @@ new #[Layout('layouts.app')] class extends Component {
                             @if (!empty($p['best_value']))
                                 <div class="mt-4 text-xs font-semibold text-emerald-700">Best value</div>
                             @endif
+
                             @if (in_array($key, ['team', 'business'], true) && ! $hasTeam)
                                 <div class="mt-4 text-xs font-semibold text-slate-500">Team plans require a team.</div>
                             @endif

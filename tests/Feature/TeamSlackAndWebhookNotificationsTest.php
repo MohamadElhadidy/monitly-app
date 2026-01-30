@@ -24,6 +24,13 @@ class TeamSlackAndWebhookNotificationsTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config(['cache.stores.redis' => ['driver' => 'array']]);
+    }
+
     private function makeTeamWithUsers(): array
     {
         $owner = User::factory()->create(['email' => 'owner@t.test']);
