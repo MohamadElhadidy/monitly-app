@@ -2,161 +2,174 @@
 
 use App\Models\Team;
 use App\Models\User;
+use App\Services\Admin\AdminBillingService;
+use App\Services\Admin\AdminSettingsService;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Volt\Component;
+use Illuminate\Support\Facades\DB;
 
 new
-#[Layout('layouts.app')]
+#[Layout('layouts.admin')]
 #[Title('Admin • Subscriptions')]
 class extends Component
 {
-    public function mount(): void
+    public bool $loadError = false;
+    public ?int $selectedId = null;
+    public ?string $selectedType = null;
+    public string $reason = '';
+
+    public function refreshPage(): void
     {
-        abort_unless(auth()->user()?->can('access-admin'), 403);
+        $this->loadError = false;
+    }
+
+    public function confirmResync(string $type, int $id): void
+    {
+        $this->selectedType = $type;
+        $this->selectedId = $id;
+    }
+
+    public function performResync(AdminBillingService $service, AdminSettingsService $settings): void
+    {
+        if ($settings->getSettings()->read_only_mode) {
+            $this->addError('reason', 'Read-only mode is enabled.');
+            return;
+        }
+
+        $this->validate([
+            'reason' => 'required|string|min:3',
+        ]);
+
+        $billable = $this->selectedType === 'team'
+            ? Team::query()->findOrFail($this->selectedId)
+            : User::query()->findOrFail($this->selectedId);
+
+        $service->requestResync($billable, $this->reason);
+
+        $this->reset(['selectedType', 'selectedId', 'reason']);
+        session()->flash('status', 'Billing resync queued.');
     }
 
     public function with(): array
     {
-        $userSubs = User::query()
-            ->whereNotNull('paddle_subscription_id')
-            ->orderByDesc('updated_at')
-            ->limit(200)
+        $subscriptions = DB::table('subscriptions')
+            ->orderByDesc('created_at')
+            ->limit(50)
             ->get();
 
-        $teamSubs = Team::query()
-            ->whereNotNull('paddle_subscription_id')
-            ->orderByDesc('updated_at')
-            ->limit(200)
-            ->get();
+        $items = DB::table('subscription_items')
+            ->whereIn('subscription_id', $subscriptions->pluck('id'))
+            ->get()
+            ->groupBy('subscription_id');
 
-        return compact('userSubs', 'teamSubs');
+        $priceMap = [];
+        foreach (config('billing.plans') as $planKey => $plan) {
+            foreach (($plan['price_ids'] ?? []) as $cycle => $priceId) {
+                if ($priceId) {
+                    $priceMap[$priceId] = ['cycle' => $cycle, 'plan' => $planKey];
+                }
+            }
+        }
+
+        $rows = $subscriptions->map(function ($subscription) use ($items, $priceMap) {
+            $item = $items[$subscription->id][0] ?? null;
+            $cycle = $item && isset($priceMap[$item->price_id]) ? $priceMap[$item->price_id]['cycle'] : 'monthly';
+            $billableType = $subscription->billable_type === Team::class ? 'team' : 'user';
+            $billable = $subscription->billable_type === Team::class
+                ? Team::query()->find($subscription->billable_id)
+                : User::query()->find($subscription->billable_id);
+
+            return [
+                'id' => $subscription->id,
+                'entity_type' => $billableType === 'team' ? 'Team' : 'Normal user',
+                'owner_email' => $billableType === 'team' ? optional($billable?->owner)->email : $billable?->email,
+                'plan' => $billable?->billing_plan ?? 'free',
+                'status' => $subscription->status,
+                'billing_cycle' => $cycle,
+                'next_bill_at' => $billable?->next_bill_at,
+                'paddle_subscription_id' => $subscription->paddle_id,
+                'billable_type' => $billableType,
+                'billable_id' => $billable?->id,
+            ];
+        });
+
+        return ['rows' => $rows];
     }
 };
 ?>
 
 <div class="space-y-6">
-    <div class="sticky top-0 z-20 -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-4 bg-white/80 backdrop-blur border-b border-slate-200">
-        <div class="flex items-start justify-between gap-4">
-            <div>
-                <div class="text-xl font-semibold text-slate-900">Subscriptions</div>
-                <div class="mt-1 text-sm text-slate-600">Quick view of Paddle identifiers + grace windows.</div>
-            </div>
-
-            <div class="flex items-center gap-2">
-                <a href="{{ route('admin.users') }}" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Users</a>
-                <a href="{{ route('admin.teams') }}" class="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50">Teams</a>
-            </div>
-        </div>
+    <div>
+        <h1 class="text-2xl font-semibold text-slate-900">Subscriptions</h1>
+        <p class="text-sm text-slate-600">Paddle subscription health across users and teams.</p>
     </div>
 
-    <div class="grid grid-cols-1 gap-6">
-        <div class="rounded-xl border border-slate-200 bg-white shadow-sm p-6">
-            <div class="flex items-center justify-between">
-                <div class="text-sm font-semibold text-slate-900">User Subscriptions</div>
-                <div class="text-xs text-slate-500">{{ $userSubs->count() }} shown</div>
-            </div>
-
-            @if ($userSubs->isEmpty())
-                <div class="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-6">
-                    <div class="flex items-center gap-3">
-                        <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-white border border-slate-200">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M20 7H4"/><path d="M20 11H4"/><path d="M10 15H4"/><path d="M20 15h-6"/><path d="M20 19H4"/>
-                            </svg>
-                        </div>
-                        <div>
-                            <div class="text-sm font-semibold text-slate-900">No user subscriptions found</div>
-                            <div class="text-sm text-slate-600">Users with Paddle subscription IDs will appear here.</div>
-                        </div>
-                    </div>
-                </div>
-            @else
-                <div class="mt-4 overflow-x-auto">
-                    <table class="min-w-full divide-y divide-slate-200">
-                        <thead class="bg-slate-50">
-                            <tr>
-                                <th class="px-4 py-2 text-left text-xs font-semibold text-slate-600">User</th>
-                                <th class="px-4 py-2 text-left text-xs font-semibold text-slate-600">Plan</th>
-                                <th class="px-4 py-2 text-left text-xs font-semibold text-slate-600">Status</th>
-                                <th class="px-4 py-2 text-left text-xs font-semibold text-slate-600">Next bill</th>
-                                <th class="px-4 py-2 text-left text-xs font-semibold text-slate-600">Grace ends</th>
-                                <th class="px-4 py-2 text-left text-xs font-semibold text-slate-600">Subscription</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-200 bg-white">
-                            @foreach ($userSubs as $u)
-                                <tr class="hover:bg-slate-50">
-                                    <td class="px-4 py-2 text-sm text-slate-600">
-                                        <div class="font-semibold text-slate-900">{{ $u->name }}</div>
-                                        <div class="text-xs text-slate-500">#{{ $u->id }} · {{ $u->email }}</div>
-                                    </td>
-                                    <td class="px-4 py-2 text-sm text-slate-600">{{ strtoupper($u->billing_plan) }}</td>
-                                    <td class="px-4 py-2 text-sm text-slate-600">{{ strtoupper($u->billing_status) }}</td>
-                                    <td class="px-4 py-2 text-sm text-slate-600">{{ $u->next_bill_at?->format('Y-m-d') ?? '—' }}</td>
-                                    <td class="px-4 py-2 text-sm text-slate-600">{{ $u->grace_ends_at?->format('Y-m-d') ?? '—' }}</td>
-                                    <td class="px-4 py-2 text-xs text-slate-500 font-mono">{{ $u->paddle_subscription_id }}</td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                </div>
-            @endif
+    @if (session('status'))
+        <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            {{ session('status') }}
         </div>
+    @endif
 
-        <div class="rounded-xl border border-slate-200 bg-white shadow-sm p-6">
-            <div class="flex items-center justify-between">
-                <div class="text-sm font-semibold text-slate-900">Team Subscriptions</div>
-                <div class="text-xs text-slate-500">{{ $teamSubs->count() }} shown</div>
-            </div>
-
-            @if ($teamSubs->isEmpty())
-                <div class="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-6">
-                    <div class="flex items-center gap-3">
-                        <div class="flex h-10 w-10 items-center justify-center rounded-lg bg-white border border-slate-200">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-slate-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                                <circle cx="8.5" cy="7" r="4"/>
-                                <path d="M20 8v6"/><path d="M23 11h-6"/>
-                            </svg>
-                        </div>
-                        <div>
-                            <div class="text-sm font-semibold text-slate-900">No team subscriptions found</div>
-                            <div class="text-sm text-slate-600">Teams with Paddle subscription IDs will appear here.</div>
-                        </div>
-                    </div>
-                </div>
-            @else
-                <div class="mt-4 overflow-x-auto">
-                    <table class="min-w-full divide-y divide-slate-200">
-                        <thead class="bg-slate-50">
-                            <tr>
-                                <th class="px-4 py-2 text-left text-xs font-semibold text-slate-600">Team</th>
-                                <th class="px-4 py-2 text-left text-xs font-semibold text-slate-600">Plan</th>
-                                <th class="px-4 py-2 text-left text-xs font-semibold text-slate-600">Status</th>
-                                <th class="px-4 py-2 text-left text-xs font-semibold text-slate-600">Next bill</th>
-                                <th class="px-4 py-2 text-left text-xs font-semibold text-slate-600">Grace ends</th>
-                                <th class="px-4 py-2 text-left text-xs font-semibold text-slate-600">Subscription</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-slate-200 bg-white">
-                            @foreach ($teamSubs as $t)
-                                <tr class="hover:bg-slate-50">
-                                    <td class="px-4 py-2 text-sm text-slate-600">
-                                        <div class="font-semibold text-slate-900">{{ $t->name }}</div>
-                                        <div class="text-xs text-slate-500">#{{ $t->id }} · owner #{{ $t->user_id }}</div>
-                                    </td>
-                                    <td class="px-4 py-2 text-sm text-slate-600">{{ strtoupper($t->billing_plan) }}</td>
-                                    <td class="px-4 py-2 text-sm text-slate-600">{{ strtoupper($t->billing_status) }}</td>
-                                    <td class="px-4 py-2 text-sm text-slate-600">{{ $t->next_bill_at?->format('Y-m-d') ?? '—' }}</td>
-                                    <td class="px-4 py-2 text-sm text-slate-600">{{ $t->grace_ends_at?->format('Y-m-d') ?? '—' }}</td>
-                                    <td class="px-4 py-2 text-xs text-slate-500 font-mono">{{ $t->paddle_subscription_id }}</td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                </div>
-            @endif
+    @if($loadError)
+        <div class="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            Unable to load subscriptions.
+            <button wire:click="refreshPage" class="ml-3 rounded border border-rose-300 px-2 py-1 text-xs font-semibold">Retry</button>
         </div>
+    @endif
+
+    <div class="overflow-hidden rounded-lg border border-slate-200 bg-white">
+        <table class="min-w-full divide-y divide-slate-200 text-sm">
+            <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr>
+                    <th class="px-4 py-3 text-left">Entity</th>
+                    <th class="px-4 py-3 text-left">Owner Email</th>
+                    <th class="px-4 py-3 text-left">Plan</th>
+                    <th class="px-4 py-3 text-left">Status</th>
+                    <th class="px-4 py-3 text-left">Billing Cycle</th>
+                    <th class="px-4 py-3 text-left">Next Charge</th>
+                    <th class="px-4 py-3 text-left">Paddle Subscription</th>
+                    <th class="px-4 py-3 text-right">Actions</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200">
+                @forelse($rows as $row)
+                    <tr>
+                        <td class="px-4 py-3">{{ $row['entity_type'] }}</td>
+                        <td class="px-4 py-3">{{ $row['owner_email'] ?? '—' }}</td>
+                        <td class="px-4 py-3">{{ ucfirst($row['plan']) }}</td>
+                        <td class="px-4 py-3">{{ $row['status'] }}</td>
+                        <td class="px-4 py-3">{{ ucfirst($row['billing_cycle']) }}</td>
+                        <td class="px-4 py-3">{{ $row['next_bill_at'] ? \Carbon\Carbon::parse($row['next_bill_at'])->toDateString() : '—' }}</td>
+                        <td class="px-4 py-3 text-xs">{{ $row['paddle_subscription_id'] }}</td>
+                        <td class="px-4 py-3 text-right">
+                            <button wire:click="confirmResync('{{ $row['billable_type'] }}', {{ $row['billable_id'] }})" class="text-xs font-semibold text-slate-700 hover:underline">Resync billing</button>
+                        </td>
+                    </tr>
+                @empty
+                    <tr>
+                        <td colspan="8" class="px-4 py-8 text-center text-sm text-slate-500">No subscriptions found.</td>
+                    </tr>
+                @endforelse
+            </tbody>
+        </table>
     </div>
+
+    @if($selectedId)
+        <div class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+            <div class="w-full max-w-lg rounded-lg bg-white p-6">
+                <h2 class="text-lg font-semibold text-slate-900">Resync billing from Paddle?</h2>
+                <p class="mt-2 text-sm text-slate-600">Resync billing from Paddle? This may take a moment.</p>
+                <div class="mt-4">
+                    <label class="text-xs font-semibold uppercase text-slate-500">Reason</label>
+                    <textarea wire:model.defer="reason" class="mt-2 w-full rounded-lg border border-slate-200 p-2 text-sm" rows="3" placeholder="Reason required"></textarea>
+                    @error('reason') <div class="text-xs text-rose-600 mt-1">{{ $message }}</div> @enderror
+                </div>
+                <div class="mt-6 flex justify-end gap-2">
+                    <button wire:click="$set('selectedId', null)" class="rounded-lg border border-slate-200 px-4 py-2 text-sm">Cancel</button>
+                    <button wire:click="performResync" class="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white">Confirm</button>
+                </div>
+            </div>
+        </div>
+    @endif
 </div>
