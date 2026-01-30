@@ -14,7 +14,10 @@ class ProcessPaddleWebhookJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public function __construct(public int $eventId) {}
+    public function __construct(public int $eventId)
+    {
+        $this->onQueue('webhooks_in');
+    }
 
     public function handle(PaddleWebhookProcessor $processor): void
     {

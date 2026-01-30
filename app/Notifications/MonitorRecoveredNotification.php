@@ -13,6 +13,8 @@ class MonitorRecoveredNotification extends Notification implements ShouldQueue
 {
     use Queueable;
 
+    public string $queue = 'notifications';
+
     public function __construct(
         public Monitor $monitor,
         public Incident $incident

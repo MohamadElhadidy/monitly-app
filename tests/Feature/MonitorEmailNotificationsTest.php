@@ -20,6 +20,13 @@ class MonitorEmailNotificationsTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config(['cache.stores.redis' => ['driver' => 'array']]);
+    }
+
     private function makeIndividualMonitor(User $owner, array $overrides = []): Monitor
     {
         return Monitor::query()->create(array_merge([
