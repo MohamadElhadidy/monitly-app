@@ -17,5 +17,8 @@ Schedule::job(new DispatchSlaEvaluationsJob())
 // Scheduler heartbeat (for admin health page)
 Schedule::command('system:scheduler-heartbeat')->everyMinute();
 
-// Enforce grace downgrades regularly
+// Enforce billing plan limits regularly
 Schedule::command('billing:enforce-grace')->hourly();
+
+// Prune monitor history and keep daily aggregates
+Schedule::command('monitor-history:prune')->daily();

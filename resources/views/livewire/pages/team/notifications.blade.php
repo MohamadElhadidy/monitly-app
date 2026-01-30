@@ -37,7 +37,7 @@ class extends Component
         abort_unless($this->userCanManageTeam(), 403);
 
         // Team plan only
-        abort_unless(strtolower((string) $this->team->billing_plan) === 'team', 403);
+        abort_unless(in_array(strtolower((string) $this->team->billing_plan), ['team', 'business'], true), 403);
 
         $this->channel = NotificationChannel::query()->firstOrCreate(
             ['team_id' => $this->team->id],
@@ -69,7 +69,7 @@ class extends Component
     public function saveChannelSettings(): void
     {
         abort_unless($this->userCanManageTeam(), 403);
-        abort_unless(strtolower((string) $this->team->billing_plan) === 'team', 403);
+        abort_unless(in_array(strtolower((string) $this->team->billing_plan), ['team', 'business'], true), 403);
 
         $this->validate([
             'slack_enabled' => ['boolean'],
@@ -127,7 +127,7 @@ class extends Component
     public function createEndpoint(SsrfGuard $ssrfGuard): void
     {
         abort_unless($this->userCanManageTeam(), 403);
-        abort_unless(strtolower((string) $this->team->billing_plan) === 'team', 403);
+        abort_unless(in_array(strtolower((string) $this->team->billing_plan), ['team', 'business'], true), 403);
 
         $this->validate([
             'new_endpoint_url' => ['required', 'string', 'max:2000'],

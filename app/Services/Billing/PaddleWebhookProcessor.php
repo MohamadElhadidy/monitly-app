@@ -9,7 +9,6 @@ use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
-use Illuminate\Support\Facades\Notification;
 use App\Notifications\DuplicateSubscriptionsDetected;
 use App\Notifications\SubscriptionAutoCanceled;
 
@@ -85,18 +84,15 @@ class PaddleWebhookProcessor
             'items_detail' => json_encode($items),
         ]);
 
-        [$plan, $addons] = $this->resolvePlanAndAddons($items, $ownerType);
+        $plan = $this->resolvePlanFromItems($items);
 
-        Log::info('🎯 Resolved plan and addons', [
+        Log::info('🎯 Resolved plan', [
             'event_id' => $event->id,
             'plan' => $plan,
-            'addons' => $addons,
         ]);
 
-        DB::transaction(function () use ($owner, $ownerType, $type, $status, $customerId, $subscriptionId, $nextBillAt, $occurredAt, $plan, $addons, $event) {
-            
-            $graceDays = (int) config('billing.grace_days', 7);
-            $billingStatus = $this->determineBillingStatus($type, $status, $plan);
+        DB::transaction(function () use ($owner, $ownerType, $type, $status, $customerId, $subscriptionId, $nextBillAt, $occurredAt, $plan, $data, $event) {
+            $billingStatus = $this->determineBillingStatus($type, $status, $plan, $data);
 
             Log::info('📊 Billing status determined', [
                 'event_id' => $event->id,
@@ -108,28 +104,24 @@ class PaddleWebhookProcessor
                 $this->processUserSubscription(
                     $owner,
                     $plan,
-                    $addons,
                     $customerId,
                     $subscriptionId,
                     $billingStatus,
                     $nextBillAt,
                     $occurredAt,
                     $type,
-                    $graceDays,
                     $event->id
                 );
             } else {
                 $this->processTeamSubscription(
                     $owner,
                     $plan,
-                    $addons,
                     $customerId,
                     $subscriptionId,
                     $billingStatus,
                     $nextBillAt,
                     $occurredAt,
                     $type,
-                    $graceDays,
                     $event->id
                 );
             }
@@ -241,74 +233,66 @@ class PaddleWebhookProcessor
     }
 
     /**
-     * 🔥 FIX #3 & #4: Properly resolve plan and addons from items
+     * Resolve plan from subscription items.
      */
-    private function resolvePlanAndAddons(array $items, string $ownerType): array
+    private function resolvePlanFromItems(array $items): string
     {
-        $proIds = (array) config('billing.plans.pro.price_ids', []);
-        $teamIds = (array) config('billing.plans.team.price_ids', []);
-        
-        $addonMonitorIds = (array) config('billing.addons.extra_monitor_pack.price_ids', []);
-        $addonSeatIds = (array) config('billing.addons.extra_seat_pack.price_ids', []);
-        $addonFasterIds = (array) config('billing.addons.faster_checks_5min.price_ids', []);
+        $plans = config('billing.plans', []);
+        $planPriceIds = [];
 
-        $plan = PlanLimits::PLAN_FREE;
-        $monitorPacks = 0;
-        $seatPacks = 0;
-        $intervalOverride = null;
+        foreach ($plans as $key => $plan) {
+            $ids = $plan['price_ids'] ?? [];
+            $flat = [];
+
+            foreach ($ids as $id) {
+                if (is_array($id)) {
+                    $flat = array_merge($flat, $id);
+                } else {
+                    $flat[] = $id;
+                }
+            }
+
+            $planPriceIds[$key] = array_filter($flat);
+        }
 
         foreach ($items as $item) {
             $priceId = Arr::get($item, 'price.id') ?? Arr::get($item, 'price_id') ?? null;
-            $quantity = (int) (Arr::get($item, 'quantity') ?? 1);
 
-            if (!is_string($priceId) || $priceId === '') continue;
-
-            // Check if it's a plan
-            if (in_array($priceId, $teamIds, true)) {
-                $plan = PlanLimits::PLAN_TEAM;
-                Log::info('✅ Matched TEAM plan', ['price_id' => $priceId]);
-            } elseif (in_array($priceId, $proIds, true)) {
-                $plan = PlanLimits::PLAN_PRO;
-                Log::info('✅ Matched PRO plan', ['price_id' => $priceId]);
+            if (! is_string($priceId) || $priceId === '') {
+                continue;
             }
-            // Check if it's an addon
-            elseif (in_array($priceId, $addonMonitorIds, true)) {
-                $monitorPacks += $quantity; // 🔥 FIX #6: Track QUANTITY
-                Log::info('✅ Matched MONITOR addon', ['price_id' => $priceId, 'quantity' => $quantity]);
-            } elseif (in_array($priceId, $addonSeatIds, true)) {
-                $seatPacks += $quantity; // 🔥 FIX #6: Track QUANTITY
-                Log::info('✅ Matched SEAT addon', ['price_id' => $priceId, 'quantity' => $quantity]);
-            } elseif (in_array($priceId, $addonFasterIds, true)) {
-                $intervalOverride = 5;
-                Log::info('✅ Matched FASTER CHECKS addon', ['price_id' => $priceId]);
+
+            foreach ($planPriceIds as $key => $ids) {
+                if (in_array($priceId, $ids, true)) {
+                    Log::info('✅ Matched plan', ['price_id' => $priceId, 'plan' => $key]);
+                    return (string) $key;
+                }
             }
         }
 
-        return [
-            $plan,
-            [
-                'extra_monitor_packs' => $monitorPacks,
-                'extra_seat_packs' => $seatPacks,
-                'interval_override_minutes' => $intervalOverride,
-            ]
-        ];
+        return PlanLimits::PLAN_FREE;
     }
 
     /**
      * Determine billing status from event type and subscription status
      */
-    private function determineBillingStatus(string $type, string $status, string $plan): string
+    private function determineBillingStatus(string $type, string $status, string $plan, array $data): string
     {
         if (Str::contains($type, ['payment_failed', 'transaction.payment_failed'])) {
-            return 'grace';
+            return 'past_due';
         }
 
-        if (in_array($status, ['past_due', 'paused'], true)) {
-            return 'grace';
+        if (in_array($status, ['past_due', 'paused', 'unpaid'], true)) {
+            return 'past_due';
         }
 
         if (in_array($status, ['canceled', 'cancelled'], true)) {
             return 'canceled';
+        }
+
+        $scheduledAction = Arr::get($data, 'scheduled_change.action');
+        if ($scheduledAction === 'cancel') {
+            return 'canceling';
         }
 
         if ($plan === PlanLimits::PLAN_FREE) {
@@ -324,14 +308,12 @@ class PaddleWebhookProcessor
     private function processUserSubscription(
         User $owner,
         string $plan,
-        array $addons,
         string $customerId,
         string $subscriptionId,
         string $billingStatus,
         $nextBillAt,
         $occurredAt,
         string $type,
-        int $graceDays,
         string $eventId
     ): void {
         Log::info('👤 Processing USER subscription', [
@@ -345,7 +327,7 @@ class PaddleWebhookProcessor
         $currentTeam = $owner->currentTeam;
         $hasActiveTeamSub = $currentTeam 
             && $currentTeam->paddle_subscription_id 
-            && in_array($currentTeam->billing_status ?? '', ['active', 'grace']);
+            && in_array($currentTeam->billing_status ?? '', ['active', 'past_due', 'canceling'], true);
 
         if ($plan === PlanLimits::PLAN_PRO && $hasActiveTeamSub) {
             Log::warning('⚠️ User subscribing to Pro while team subscription active', [
@@ -372,28 +354,28 @@ class PaddleWebhookProcessor
 
         // Update user
         $owner->paddle_customer_id = $customerId ?: $owner->paddle_customer_id;
-        $owner->paddle_subscription_id = $subscriptionId ?: $owner->paddle_subscription_id;
-        $owner->billing_plan = in_array($plan, [PlanLimits::PLAN_PRO], true) ? $plan : PlanLimits::PLAN_FREE;
-        $owner->billing_status = $owner->billing_plan === PlanLimits::PLAN_FREE ? 'free' : $billingStatus;
-        $owner->next_bill_at = $nextBillAt;
+        $normalizedPlan = in_array($plan, [PlanLimits::PLAN_PRO], true) ? $plan : PlanLimits::PLAN_FREE;
 
-        if ($owner->billing_status === 'grace') {
-            $owner->grace_ends_at = now()->addDays($graceDays);
+        if ($billingStatus === 'canceled' || $normalizedPlan === PlanLimits::PLAN_FREE) {
+            $owner->paddle_subscription_id = null;
         } else {
-            $owner->grace_ends_at = null;
+            $owner->paddle_subscription_id = $subscriptionId ?: $owner->paddle_subscription_id;
         }
+
+        $owner->billing_plan = $billingStatus === 'canceled' ? PlanLimits::PLAN_FREE : $normalizedPlan;
+        $owner->billing_status = $owner->billing_plan === PlanLimits::PLAN_FREE
+            ? ($billingStatus === 'canceled' ? 'canceled' : 'free')
+            : $billingStatus;
+        $owner->next_bill_at = $nextBillAt;
+        $owner->grace_ends_at = null;
 
         if (Str::contains($type, ['payment_succeeded', 'transaction.paid', 'invoice.paid', 'transaction.completed'])) {
             if (!$owner->first_paid_at) {
                 $owner->first_paid_at = $occurredAt;
             }
             $owner->billing_status = $owner->billing_plan === PlanLimits::PLAN_FREE ? 'free' : 'active';
-            $owner->grace_ends_at = null;
         }
-
-        // 🔥 FIX #6: Apply addons with proper quantity
-        $owner->addon_extra_monitor_packs = $owner->billing_plan === PlanLimits::PLAN_PRO ? $addons['extra_monitor_packs'] : 0;
-        $owner->addon_interval_override_minutes = $addons['interval_override_minutes'];
+        $owner->checkout_in_progress_until = null;
 
         $owner->save();
 
@@ -402,7 +384,6 @@ class PaddleWebhookProcessor
             'user_id' => $owner->id,
             'billing_plan' => $owner->billing_plan,
             'billing_status' => $owner->billing_status,
-            'monitor_packs' => $owner->addon_extra_monitor_packs,
         ]);
 
         app(PlanEnforcer::class)->enforceMonitorCapForUser($owner);
@@ -414,14 +395,12 @@ class PaddleWebhookProcessor
     private function processTeamSubscription(
         Team $owner,
         string $plan,
-        array $addons,
         string $customerId,
         string $subscriptionId,
         string $billingStatus,
         $nextBillAt,
         $occurredAt,
         string $type,
-        int $graceDays,
         string $eventId
     ): void {
         Log::info('🏢 Processing TEAM subscription', [
@@ -435,10 +414,10 @@ class PaddleWebhookProcessor
         $teamOwner = $owner->owner;
         $hasActiveUserSub = $teamOwner 
             && $teamOwner->paddle_subscription_id 
-            && in_array($teamOwner->billing_status ?? '', ['active', 'grace'])
+            && in_array($teamOwner->billing_status ?? '', ['active', 'past_due', 'canceling'], true)
             && $teamOwner->billing_plan !== PlanLimits::PLAN_FREE;
 
-        if ($plan === PlanLimits::PLAN_TEAM && $hasActiveUserSub) {
+        if (in_array($plan, [PlanLimits::PLAN_TEAM, PlanLimits::PLAN_BUSINESS], true) && $hasActiveUserSub) {
             Log::warning('⚠️ Team subscribing while owner has Pro subscription', [
                 'team_id' => $owner->id,
                 'owner_id' => $teamOwner->id,
@@ -494,29 +473,30 @@ class PaddleWebhookProcessor
 
         // Update team
         $owner->paddle_customer_id = $customerId ?: $owner->paddle_customer_id;
-        $owner->paddle_subscription_id = $subscriptionId ?: $owner->paddle_subscription_id;
-        $owner->billing_plan = $plan === PlanLimits::PLAN_TEAM ? PlanLimits::PLAN_TEAM : PlanLimits::PLAN_FREE;
-        $owner->billing_status = $owner->billing_plan === PlanLimits::PLAN_FREE ? 'free' : $billingStatus;
-        $owner->next_bill_at = $nextBillAt;
+        $normalizedPlan = in_array($plan, [PlanLimits::PLAN_TEAM, PlanLimits::PLAN_BUSINESS], true)
+            ? $plan
+            : PlanLimits::PLAN_FREE;
 
-        if ($owner->billing_status === 'grace') {
-            $owner->grace_ends_at = now()->addDays($graceDays);
+        if ($billingStatus === 'canceled' || $normalizedPlan === PlanLimits::PLAN_FREE) {
+            $owner->paddle_subscription_id = null;
         } else {
-            $owner->grace_ends_at = null;
+            $owner->paddle_subscription_id = $subscriptionId ?: $owner->paddle_subscription_id;
         }
+
+        $owner->billing_plan = $billingStatus === 'canceled' ? PlanLimits::PLAN_FREE : $normalizedPlan;
+        $owner->billing_status = $owner->billing_plan === PlanLimits::PLAN_FREE
+            ? ($billingStatus === 'canceled' ? 'canceled' : 'free')
+            : $billingStatus;
+        $owner->next_bill_at = $nextBillAt;
+        $owner->grace_ends_at = null;
 
         if (Str::contains($type, ['payment_succeeded', 'transaction.paid', 'invoice.paid', 'transaction.completed'])) {
             if (!$owner->first_paid_at) {
                 $owner->first_paid_at = $occurredAt;
             }
             $owner->billing_status = $owner->billing_plan === PlanLimits::PLAN_FREE ? 'free' : 'active';
-            $owner->grace_ends_at = null;
         }
-
-        // 🔥 FIX #6: Apply addons with proper quantity
-        $owner->addon_extra_monitor_packs = $owner->billing_plan === PlanLimits::PLAN_TEAM ? $addons['extra_monitor_packs'] : 0;
-        $owner->addon_extra_seat_packs = $owner->billing_plan === PlanLimits::PLAN_TEAM ? $addons['extra_seat_packs'] : 0;
-        $owner->addon_interval_override_minutes = $addons['interval_override_minutes'];
+        $owner->checkout_in_progress_until = null;
 
         $owner->save();
 
@@ -525,8 +505,6 @@ class PaddleWebhookProcessor
             'team_id' => $owner->id,
             'billing_plan' => $owner->billing_plan,
             'billing_status' => $owner->billing_status,
-            'monitor_packs' => $owner->addon_extra_monitor_packs,
-            'seat_packs' => $owner->addon_extra_seat_packs,
         ]);
 
         app(PlanEnforcer::class)->enforceSeatCapForTeam($owner);

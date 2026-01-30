@@ -8,13 +8,13 @@ use Illuminate\Console\Command;
 class BillingEnforceGraceCommand extends Command
 {
     protected $signature = 'billing:enforce-grace';
-    protected $description = 'Downgrade accounts whose grace period ended and enforce plan limits.';
+    protected $description = 'Enforce plan limits and apply billing locks.';
 
     public function handle(PlanEnforcer $enforcer): int
     {
         $enforcer->enforceGraceDowngrades();
 
-        $this->info('Grace enforcement completed.');
+        $this->info('Plan limits enforced.');
 
         return self::SUCCESS;
     }

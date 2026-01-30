@@ -18,7 +18,7 @@ class InviteTeamMember implements InvitesTeamMembers
 
         if (! PlanLimits::canInviteMembers($plan)) {
             throw ValidationException::withMessages([
-                'email' => 'Invitations are disabled on your plan. Upgrade to Team to invite members.',
+                'email' => 'Invitations are disabled on your plan. Upgrade to Team or Business to invite members.',
             ]);
         }
 
@@ -32,7 +32,7 @@ class InviteTeamMember implements InvitesTeamMembers
 
         if (($currentSeats + $pendingInvites) >= $seatLimit) {
             throw ValidationException::withMessages([
-                'email' => "Seat limit reached ({$seatLimit}). Add Extra Team Member Packs (+3) to invite more.",
+                'email' => 'This item is blocked due to your plan limits.',
             ]);
         }
 

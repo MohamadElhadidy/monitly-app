@@ -12,13 +12,25 @@ class CapturePaddleWebhook
     {
         $payload = $event->payload;
 
-        $record = BillingWebhookEvent::create([
-            'event_type' => $payload['event_type'] ?? 'unknown',
-            'payload'    => $payload,
-            'processed'  => false,
-            'signature_valid' => true, // ← ADD THIS LINE! If WebhookHandled fired, signature is valid
-        ]);
+        $eventId = (string) ($payload['event_id'] ?? $payload['id'] ?? '');
+        if ($eventId === '') {
+            $eventId = hash('sha256', json_encode($payload));
+        }
 
-        ProcessPaddleWebhookJob::dispatch($record->id);
+        $record = BillingWebhookEvent::firstOrCreate(
+            [
+                'provider' => 'paddle',
+                'event_id' => $eventId,
+            ],
+            [
+                'event_type' => $payload['event_type'] ?? 'unknown',
+                'payload' => $payload,
+                'signature_valid' => true,
+            ]
+        );
+
+        if ($record->wasRecentlyCreated) {
+            ProcessPaddleWebhookJob::dispatch($record->id);
+        }
     }
 }

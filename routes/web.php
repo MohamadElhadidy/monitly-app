@@ -71,6 +71,20 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/monitors/{monitor}/sla-reports/{report}/download', DownloadMonitorSlaReportController::class)
             ->middleware('signed')
             ->name('sla.reports.download');
+
+        // Billing routes
+        Route::prefix('billing')->name('billing.')->group(function () {
+            Volt::route('/', 'pages.billing.index')->name('index');
+            Route::get('/checkout', [CheckoutController::class, 'show'])->name('checkout');
+            Route::post('/checkout/change', [CheckoutController::class, 'applyChange'])->name('checkout.change');
+            Volt::route('/success', 'pages.billing.success')->name('success');
+            Volt::route('/cancel', 'pages.billing.cancel')->name('cancel');
+            Volt::route('/history', 'pages.billing.history')->name('history');
+
+            Route::get('/portal', [BillingController::class, 'portal'])->name('portal');
+            Route::post('/cancel', [BillingController::class, 'cancel'])->name('cancel.plan');
+            Route::get('/invoices/{transaction}/download', [BillingController::class, 'downloadInvoice'])->name('invoices.download');
+        });
     });
 
     // Admin (internal)
@@ -83,43 +97,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Volt::route('/audit-logs', 'pages.admin.audit-logs')->name('admin.audit_logs');
         Volt::route('/system', 'pages.admin.system')->name('admin.system');
     });
-});
-
-// ============================================================================
-// BILLING ROUTES - Laravel Cashier (Paddle) Integration
-// Following: https://laravel.com/docs/12.x/cashier-paddle
-// ============================================================================
-
-Route::middleware(['auth', 'verified'])->prefix('billing')->name('billing.')->group(function () {
-    
-    // Main billing dashboard
-
-    Volt::route('/', 'pages.billing.index')->name('index');
-
-    Route::get('/checkout', [CheckoutController::class, 'show'])
-        ->name('checkout');    
-    Volt::route('/checkout/success', 'pages.billing.success')->name('success');
-
-    // Route::get('/checkout/success', [CheckoutController::class, 'success'])->name('success');
-    
-    
-    
-    Route::get('/checkout/cancel', [CheckoutController::class, 'cancel'])->name('cancel');
-    
-    // Paddle Customer Portal (for managing subscriptions, payment methods, invoices)
-    Route::get('/portal', [BillingController::class, 'portal'])->name('portal');
-    
-    // Subscription actions
-    Route::post('/cancel', [BillingController::class, 'cancel'])->name('cancel');
-    Route::post('/cancel-now', [BillingController::class, 'cancelNow'])->name('cancel.now');
-    Route::post('/resume', [BillingController::class, 'resume'])->name('resume');
-    Route::post('/swap', [BillingController::class, 'swap'])->name('swap');
-    Route::post('/pause', [BillingController::class, 'pause'])->name('pause');
-    Route::post('/unpause', [BillingController::class, 'unpause'])->name('unpause');
-    Route::post('/quantity', [BillingController::class, 'updateQuantity'])->name('quantity');
-    
-    // Invoices
-    Route::get('/invoices/{transaction}/download', [BillingController::class, 'downloadInvoice'])->name('invoices.download');
 });
 
 // ============================================================================
