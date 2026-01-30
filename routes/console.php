@@ -31,3 +31,27 @@ Schedule::job(new PruneOldNotificationsJob())
     ->hourly()
     ->withoutOverlapping()
     ->name('monitly:prune-notifications');
+
+
+// ==============================
+// PR-added scheduled commands
+// ==============================
+
+// Scheduler heartbeat (for admin health page)
+Schedule::command('system:scheduler-heartbeat')
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->name('monitly:scheduler-heartbeat');
+
+// Enforce billing plan limits regularly
+Schedule::command('billing:enforce-grace')
+    ->hourly()
+    ->withoutOverlapping()
+    ->name('monitly:billing-enforce-grace');
+
+// Prune monitor history and keep daily aggregates
+Schedule::command('monitor-history:prune')
+    ->daily()
+    ->withoutOverlapping()
+    ->name('monitly:monitor-history-prune');
+
