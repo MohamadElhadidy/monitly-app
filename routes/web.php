@@ -87,15 +87,24 @@ Route::middleware(['auth', 'verified'])->group(function () {
         });
     });
 
-    // Admin (internal)
-    Route::prefix('admin')->middleware('can:access-admin')->group(function () {
+    // Admin (owner-only)
+    Route::prefix('admin')->middleware('owner-only')->group(function () {
         Volt::route('/', 'pages.admin.index')->name('admin.index');
+        Volt::route('/revenue', 'pages.admin.revenue')->name('admin.revenue');
+        Volt::route('/subscriptions', 'pages.admin.subscriptions')->name('admin.subscriptions');
+        Volt::route('/payments', 'pages.admin.payments')->name('admin.payments');
+        Volt::route('/refunds', 'pages.admin.refunds')->name('admin.refunds');
         Volt::route('/users', 'pages.admin.users')->name('admin.users');
         Volt::route('/teams', 'pages.admin.teams')->name('admin.teams');
-        Volt::route('/monitors', 'pages.admin.monitors')->name('admin.monitors');
-        Volt::route('/subscriptions', 'pages.admin.subscriptions')->name('admin.subscriptions');
-        Volt::route('/audit-logs', 'pages.admin.audit-logs')->name('admin.audit_logs');
-        Volt::route('/system', 'pages.admin.system')->name('admin.system');
+        Volt::route('/usage', 'pages.admin.usage')->name('admin.usage');
+        Volt::route('/queues', 'pages.admin.queues')->name('admin.queues');
+        Volt::route('/jobs/failed', 'pages.admin.jobs-failed')->name('admin.jobs.failed');
+        Volt::route('/webhooks/paddle', 'pages.admin.webhooks')->name('admin.webhooks');
+        Volt::route('/errors', 'pages.admin.errors')->name('admin.errors');
+        Volt::route('/notifications', 'pages.admin.notifications')->name('admin.notifications');
+        Volt::route('/incidents', 'pages.admin.incidents')->name('admin.incidents');
+        Volt::route('/audit', 'pages.admin.audit')->name('admin.audit');
+        Volt::route('/settings', 'pages.admin.settings')->name('admin.settings');
     });
 });
 
