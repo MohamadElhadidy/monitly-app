@@ -4,6 +4,7 @@ use App\Http\Controllers\Sla\DownloadMonitorSlaReportController;
 use App\Http\Controllers\Billing\BillingController;
 use App\Http\Controllers\Billing\CheckoutController;
 use App\Http\Controllers\Billing\PaddleWebhookController;
+use App\Http\Controllers\Webhooks\PaddleWebhookController as CashierPaddleWebhookController;
 use Illuminate\Support\Facades\Route;
 use Livewire\Volt\Volt;
 use App\Http\Controllers\System\HealthController;
@@ -110,7 +111,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
 // ============================================================================
 // PADDLE WEBHOOK
-// This route is automatically registered by Cashier at /paddle/webhook
-// But we can also manually define it if needed
+// Cashier Paddle webhook (official). Paddle should be pointed here.
+// We still accept /webhooks/paddle for legacy/manual ingestion.
 // ============================================================================
+Route::post('/paddle/webhook', CashierPaddleWebhookController::class);
 Route::post('/webhooks/paddle', [PaddleWebhookController::class, 'handle']);

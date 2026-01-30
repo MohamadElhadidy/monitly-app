@@ -4,7 +4,15 @@
 ])
 
 @php
-    $checkoutUrl = $checkout['url'] ?? $url ?? '#';
+    $checkoutUrl = $url ?? '#';
+
+    if ($checkout) {
+        if (is_array($checkout)) {
+            $checkoutUrl = $checkout['url'] ?? $checkoutUrl;
+        } elseif (is_object($checkout) && method_exists($checkout, 'url')) {
+            $checkoutUrl = $checkout->url() ?? $checkoutUrl;
+        }
+    }
 @endphp
 
 <a 
