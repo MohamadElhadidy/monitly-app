@@ -9,6 +9,7 @@ use App\Models\User;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 class AdminMetrics
 {
@@ -42,6 +43,10 @@ class AdminMetrics
 
     public function refundTotals(?CarbonInterface $start = null, ?CarbonInterface $end = null): float
     {
+        if (! Schema::hasTable('billing_refunds')) {
+            return 0.0;
+        }
+
         $query = DB::table('billing_refunds');
 
         if ($start) {
