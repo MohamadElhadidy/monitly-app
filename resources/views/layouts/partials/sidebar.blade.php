@@ -17,16 +17,15 @@
         
         <!-- Plan Badge & Upgrade CTA -->
         @php
-            $user = auth()->user();
-            $currentTeam = $user?->currentTeam;
-            $billable = $currentTeam && $currentTeam->paddle_subscription_id ? $currentTeam : $user;
-            $billingPlan = $billable->billing_plan ?? 'free';
-            $planName = ucfirst($billingPlan);
+            // Use variables from parent layout (app.blade.php):
+            // $user, $currentTeam, $billable, $billingPlan are already defined
+            $planName = ucfirst($billingPlan ?? 'free');
             
             $planColors = [
                 'Free' => ['bg' => 'bg-gray-100', 'text' => 'text-gray-700', 'border' => 'border-gray-200', 'dot' => 'bg-gray-400'],
                 'Pro' => ['bg' => 'bg-blue-50', 'text' => 'text-blue-700', 'border' => 'border-blue-200', 'dot' => 'bg-blue-500'],
                 'Team' => ['bg' => 'bg-purple-50', 'text' => 'text-purple-700', 'border' => 'border-purple-200', 'dot' => 'bg-purple-500'],
+                'Business' => ['bg' => 'bg-amber-50', 'text' => 'text-amber-700', 'border' => 'border-amber-200', 'dot' => 'bg-amber-500'],
             ];
             $colors = $planColors[$planName] ?? $planColors['Free'];
         @endphp
