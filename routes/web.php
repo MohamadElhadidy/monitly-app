@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Sla\DownloadMonitorSlaReportController;
 use App\Http\Controllers\Billing\BillingController;
+use App\Http\Controllers\Billing\BillingSyncController;
 use App\Http\Controllers\Billing\CheckoutController;
 use App\Http\Controllers\Billing\PaddleWebhookController;
 use App\Http\Controllers\Webhooks\PaddleWebhookController as CashierPaddleWebhookController;
@@ -81,6 +82,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
             Volt::route('/success', 'pages.billing.success')->name('success');
             Volt::route('/cancel', 'pages.billing.cancel')->name('cancel');
             Volt::route('/history', 'pages.billing.history')->name('history');
+
+            // Sync status endpoint for polling (JSON)
+            Route::get('/sync-status', [BillingSyncController::class, 'syncStatus'])->name('sync-status');
+            // Clear pending checkout
+            Route::post('/clear-pending', [BillingSyncController::class, 'clearPending'])->name('clear-pending');
 
             Route::get('/portal', [BillingController::class, 'portal'])->name('portal');
             Route::post('/cancel', [BillingController::class, 'cancel'])->name('cancel.plan');
