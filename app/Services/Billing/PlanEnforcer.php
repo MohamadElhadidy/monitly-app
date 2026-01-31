@@ -74,20 +74,60 @@ class PlanEnforcer
 
     public function enforceGraceDowngrades(): void
     {
+        $now = now();
+
         User::query()
-            ->chunkById(200, function ($users) {
-                foreach ($users as $u) {
-                    $this->enforceMonitorCapForUser($u);
+            ->where('billing_status', PlanLimits::BILLING_STATUS_PAST_DUE)
+            ->whereNotNull('grace_ends_at')
+            ->where('grace_ends_at', '<=', $now)
+            ->chunkById(100, function ($users) {
+                foreach ($users as $user) {
+                    $this->downgradeUserToFree($user);
+                }
+            });
+
+        User::query()
+            ->where('billing_status', PlanLimits::BILLING_STATUS_CANCELED)
+            ->chunkById(100, function ($users) {
+                foreach ($users as $user) {
+                    if ($user->billing_plan !== PlanLimits::PLAN_FREE) {
+                        $this->downgradeUserToFree($user);
+                    }
                 }
             });
 
         Team::query()
-            ->chunkById(200, function ($teams) {
-                foreach ($teams as $t) {
-                    $this->enforceMonitorCapForTeam($t);
-                    $this->enforceSeatCapForTeam($t);
+            ->where('billing_status', PlanLimits::BILLING_STATUS_PAST_DUE)
+            ->whereNotNull('grace_ends_at')
+            ->where('grace_ends_at', '<=', $now)
+            ->chunkById(100, function ($teams) {
+                foreach ($teams as $team) {
+                    $this->downgradeTeamToFree($team);
                 }
             });
+
+        Team::query()
+            ->where('billing_status', PlanLimits::BILLING_STATUS_CANCELED)
+            ->chunkById(100, function ($teams) {
+                foreach ($teams as $team) {
+                    if ($team->billing_plan !== PlanLimits::PLAN_FREE) {
+                        $this->downgradeTeamToFree($team);
+                    }
+                }
+            });
+
+        User::query()->chunkById(200, function ($users) {
+            foreach ($users as $u) {
+                $this->enforceMonitorCapForUser($u);
+            }
+        });
+
+        Team::query()->chunkById(200, function ($teams) {
+            foreach ($teams as $t) {
+                $this->enforceMonitorCapForTeam($t);
+                $this->enforceSeatCapForTeam($t);
+            }
+        });
     }
 
     public function downgradeUserToFree(User $user): void

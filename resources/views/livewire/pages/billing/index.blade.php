@@ -25,6 +25,9 @@ new #[Layout('layouts.app')] class extends Component {
     public int $userLimit = 1;
     public ?int $teamId = null;
 
+    public ?string $nextBillAt = null;
+    public bool $refundEligible = false;
+
     public function mount(BillingOwnerResolver $resolver): void
     {
         $this->plansConfig = config('billing.plans', []);
@@ -45,6 +48,12 @@ new #[Layout('layouts.app')] class extends Component {
 
         $this->checkoutLocked = (bool) ($billable->checkout_in_progress_until && $billable->checkout_in_progress_until->isFuture());
 
+        $this->nextBillAt = $billable->next_bill_at?->format('M d, Y');
+        $this->refundEligible = PlanLimits::isRefundEligible(
+            $billable->first_paid_at,
+            $billable->refund_override_until
+        );
+
         $subscription = method_exists($billable, 'subscription') ? $billable->subscription('default') : null;
         if ($subscription && $subscription->items && $subscription->items->first()?->price?->billing_cycle?->interval === 'year') {
             $this->interval = 'yearly';
@@ -64,6 +73,25 @@ new #[Layout('layouts.app')] class extends Component {
             $this->monitorLimit = PlanLimits::monitorLimitForUser($user);
             $this->userLimit = 1;
         }
+    }
+
+    public function clearPendingCheckout(BillingOwnerResolver $resolver): void
+    {
+        if (! $this->canManage) {
+            session()->flash('billing_notice', 'Only the team owner can manage billing.');
+            return;
+        }
+
+        $user = auth()->user();
+        $context = $resolver->resolve($user);
+        $billable = $context['billable'];
+
+        $billable->checkout_in_progress_until = null;
+        $billable->save();
+
+        $this->checkoutLocked = false;
+
+        session()->flash('billing_notice', 'Pending checkout cleared. You can now start a new checkout.');
     }
 
     public function proceed(BillingOwnerResolver $resolver, PaddleService $paddleService)
@@ -157,24 +185,52 @@ new #[Layout('layouts.app')] class extends Component {
 
             @if ($checkoutLocked)
                 <div class="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
-                    Checkout is already in progress. Please wait a few minutes before starting another checkout.
+                    <div class="flex items-center justify-between">
+                        <span>Billing update in progress. Please wait a few minutes before starting another checkout.</span>
+                        @if ($canManage)
+                            <button wire:click="clearPendingCheckout"
+                                    wire:loading.attr="disabled"
+                                    class="ml-4 rounded-xl bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-200">
+                                Clear pending checkout
+                            </button>
+                        @endif
+                    </div>
                 </div>
             @endif
 
-            <div class="mt-8 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div>
+            <div class="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                     <div class="text-sm font-semibold text-slate-900">Current plan</div>
                     <div class="mt-1 text-sm text-slate-600">{{ ucfirst($currentPlan) }}</div>
                 </div>
-                <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold capitalize
-                    {{ $billingStatus === 'active' ? 'bg-emerald-50 text-emerald-700' : '' }}
-                    {{ $billingStatus === 'past_due' ? 'bg-amber-50 text-amber-700' : '' }}
-                    {{ $billingStatus === 'canceling' ? 'bg-blue-50 text-blue-700' : '' }}
-                    {{ $billingStatus === 'canceled' ? 'bg-slate-100 text-slate-700' : '' }}
-                    {{ $billingStatus === 'free' ? 'bg-slate-100 text-slate-700' : '' }}
-                ">
-                    {{ str_replace('_', ' ', $billingStatus) }}
-                </span>
+                <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                    <div class="text-sm font-semibold text-slate-900">Status</div>
+                    <div class="mt-1">
+                        <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize
+                            {{ $billingStatus === 'active' ? 'bg-emerald-100 text-emerald-700' : '' }}
+                            {{ $billingStatus === 'past_due' ? 'bg-amber-100 text-amber-700' : '' }}
+                            {{ $billingStatus === 'canceling' ? 'bg-blue-100 text-blue-700' : '' }}
+                            {{ $billingStatus === 'canceled' ? 'bg-slate-200 text-slate-700' : '' }}
+                            {{ $billingStatus === 'free' ? 'bg-slate-200 text-slate-700' : '' }}
+                        ">
+                            {{ str_replace('_', ' ', $billingStatus) }}
+                        </span>
+                    </div>
+                </div>
+                @if ($nextBillAt && in_array($billingStatus, ['active', 'past_due', 'canceling']))
+                    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <div class="text-sm font-semibold text-slate-900">
+                            {{ $billingStatus === 'canceling' ? 'Plan ends' : 'Next billing' }}
+                        </div>
+                        <div class="mt-1 text-sm text-slate-600">{{ $nextBillAt }}</div>
+                    </div>
+                @endif
+                @if ($refundEligible && $billingStatus === 'active')
+                    <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+                        <div class="text-sm font-semibold text-emerald-900">Refund eligible</div>
+                        <div class="mt-1 text-xs text-emerald-700">30-day money-back guarantee</div>
+                    </div>
+                @endif
             </div>
 
             <div class="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">

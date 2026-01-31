@@ -33,12 +33,8 @@ class PruneOldNotificationsJob implements ShouldQueue
                         ? PlanLimits::planForTeam($monitor->team)
                         : strtolower((string) ($monitor->owner?->billing_plan ?? PlanLimits::PLAN_FREE));
 
-                    $historyDays = PlanLimits::historyDays($plan);
-                    if (! $historyDays) {
-                        continue;
-                    }
-
-                    $cutoff = now()->subDays($historyDays);
+                    $retentionDays = PlanLimits::notificationLogsRetentionDays($plan);
+                    $cutoff = now()->subDays($retentionDays);
 
                     NotificationDelivery::query()
                         ->where('monitor_id', $monitor->id)

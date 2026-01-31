@@ -33,15 +33,12 @@ class PruneOldIncidentsJob implements ShouldQueue
                         ? PlanLimits::planForTeam($monitor->team)
                         : strtolower((string) ($monitor->owner?->billing_plan ?? PlanLimits::PLAN_FREE));
 
-                    $historyDays = PlanLimits::historyDays($plan);
-                    if (! $historyDays) {
-                        continue;
-                    }
-
-                    $cutoff = now()->subDays($historyDays);
+                    $retentionDays = PlanLimits::incidentsRetentionDays($plan);
+                    $cutoff = now()->subDays($retentionDays);
 
                     Incident::query()
                         ->where('monitor_id', $monitor->id)
+                        ->whereNotNull('recovered_at')
                         ->where('created_at', '<', $cutoff)
                         ->delete();
                 }
